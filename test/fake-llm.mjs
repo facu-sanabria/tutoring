@@ -85,6 +85,7 @@ export async function startFakeLLM() {
     if (caso === "KEY") return jsonErr(400, "API key not valid. Please pass a valid API key.");
     if (caso === "CUOTA") return jsonErr(429, "Resource has been exhausted (e.g. check quota).");
     if (caso === "MODELO") return jsonErr(404, "models/inexistente is not found for API version v1beta");
+    if (caso === "APAGADA") return jsonErr(403, "Generative Language API has not been used in project 800111611422 before or it is disabled. Enable it by visiting https://console.developers.google.com/apis/api/generativelanguage.googleapis.com/overview?project=800111611422 then retry.");
     if (caso === "RARO") { res.writeHead(500, { "content-type": "text/html" }); return res.end("<html>Bad Gateway</html>"); }
     if (caso === "JSON") {
       res.writeHead(200, { "content-type": "application/json" });

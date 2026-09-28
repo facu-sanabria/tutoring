@@ -218,7 +218,8 @@ describe("servidor con Gemini", () => {
       ["FALLA_KEY", 401, /GEMINI_API_KEY del .env no es válida/i],
       ["FALLA_CUOTA", 429, /cuota gratuita/i],
       ["FALLA_MODELO", 404, /no está disponible para tu key/i],
-      ["FALLA_RARO", 500, /./]
+      ["FALLA_RARO", 500, /./],
+      ["FALLA_APAGADA", 403, /está apagada en el proyecto de Google/i]
     ];
     for (const [marca, status, re] of casos) {
       const r = await pedirMensajes(app.base, { purpose: "chat", messages: [{ role: "user", content: marca }] });
@@ -226,6 +227,14 @@ describe("servidor con Gemini", () => {
       assert.match(r.error.message, re, marca);
       assert.ok(!/clave-de-prueba/.test(JSON.stringify(r.error)), "el error no puede filtrar la key");
     }
+  });
+
+  test("messages: el aviso de API apagada incluye el link al proyecto y el atajo", async () => {
+    const r = await pedirMensajes(app.base, { purpose: "chat", messages: [{ role: "user", content: "FALLA_APAGADA" }] });
+    assert.equal(r.status, 403);
+    assert.match(r.error.message, /console\.developers\.google\.com\S*project=800111611422/);
+    assert.match(r.error.message, /aistudio\.google\.com\/apikey/);
+    assert.match(r.error.message, /proyecto NUEVO/);
   });
 
   test("messages: si Gemini contesta JSON en vez de SSE igual llega el texto", async () => {

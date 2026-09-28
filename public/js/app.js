@@ -100,7 +100,7 @@
   };
 
   const VIEW_LABEL = {
-    sims: "Simulaciones por voz", misinformes: "Mis informes", brief: "Simulación", call: "Llamada en curso", evaluating: "Evaluando", report: "Informe",
+    sims: "Simulaciones por voz", misinformes: "Mis informes", brief: "Simulación", call: "Llamada en curso", corta: "Llamada muy corta", evaluating: "Evaluando", report: "Informe",
     chat: "Mentor del equipo",
     contexto: "Contexto de la empresa", escenarios: "Escenarios de simulación", criterios: "Criterios de evaluación", informes: "Informes de candidatos"
   };
@@ -147,7 +147,7 @@
   }
 
   function navBtn(view, label, ic) {
-    return h("button", { "aria-current": S.view === view || (view === "sims" && ["brief", "call", "evaluating"].includes(S.view)) ? "page" : null, onclick: () => go(view) }, icon(ic), label);
+    return h("button", { "aria-current": S.view === view || (view === "sims" && ["brief", "call", "corta", "evaluating"].includes(S.view)) ? "page" : null, onclick: () => go(view) }, icon(ic), label);
   }
 
   function renderSide() {
@@ -392,19 +392,20 @@
     S.engine = null;
     const userTurns = turns.filter(t => t.role === "user").length;
     S.lastCall = { escenario: e, turns: turns.slice(), seconds, reason };
-    if (userTurns < 2) {
-      const view = $("view"); view.replaceChildren();
-      view.append(h("div", { class: "col hero" },
-        h("div", { class: "orb", "aria-hidden": "true" }),
-        h("h1", { class: "ask", text: "La llamada fue muy corta" }),
-        h("p", { class: "sub", text: "Para armar un informe hacen falta al menos dos respuestas tuyas." }),
-        h("div", { class: "r-actions", style: "justify-content:center" },
-          h("button", { class: "btn", onclick: () => go("call", { id: e.id }) }, "Volver a intentar"),
-          h("button", { class: "btn-o", onclick: () => go("sims") }, "Elegir otra simulación"))));
-      return;
-    }
+    if (userTurns < 2) return go("corta", { id: e.id });
     go("evaluating");
   }
+
+  VIEWS.corta = view => {
+    const id = S.params.id;
+    view.append(h("div", { class: "col hero" },
+      h("div", { class: "orb", "aria-hidden": "true" }),
+      h("h1", { class: "ask", text: "La llamada fue muy corta" }),
+      h("p", { class: "sub", text: "Para armar un informe hacen falta al menos dos respuestas tuyas." }),
+      h("div", { class: "r-actions", style: "justify-content:center" },
+        h("button", { class: "btn", onclick: () => go("call", { id }) }, "Volver a intentar"),
+        h("button", { class: "btn-o", onclick: () => go("sims") }, "Elegir otra simulación"))));
+  };
 
   // ------------------------------------------------------------------
   // ESTUDIANTE: evaluación

@@ -41,6 +41,9 @@ npm run probar-ia
 Prueba los tres modelos (chat, voz y evaluación), muestra cuánto tardó cada uno y, si algo falla, explica qué cambiar. Nunca imprime la key.
 
 Notas sobre Gemini gratis:
+- Si aparece **"la API de Gemini está apagada en el proyecto de Google de esa key"** (error 403, `SERVICE_DISABLED`): la key es válida, pero el proyecto de Google al que pertenece no tiene habilitada la *Generative Language API*. Pasa cuando en AI Studio se elige un proyecto de Cloud ya existente. Dos salidas:
+  1. Abrir el link que aparece en el mensaje (trae el número de proyecto), tocar **Habilitar**, esperar 1 o 2 minutos y reiniciar el servidor.
+  2. Más rápido: crear otra key en https://aistudio.google.com/apikey eligiendo un **proyecto nuevo**, que ya viene con la API habilitada.
 - Si aparece "cuota" o "límite de consultas", esperá un minuto. Los límites exactos se ven en AI Studio.
 - Si un modelo no está disponible para tu key, cambiá `GEMINI_MODEL` / `GEMINI_MODEL_VOICE` / `GEMINI_MODEL_EVAL` en el `.env` por otro de la lista de AI Studio y reiniciá.
 - En el plan gratuito, Google puede usar lo que se envía para mejorar sus productos: usá solo datos de ejemplo.

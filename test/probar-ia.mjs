@@ -87,6 +87,9 @@ for (const purpose of ["chat", "voice", "eval"]) {
 console.log("");
 if (fallas) {
   console.log("  Qué mirar según el error:");
+  console.log("  · \"API ... apagada\" / 403 -> la key pertenece a un proyecto de Google sin la Generative");
+  console.log("                                Language API habilitada. Seguí el link del mensaje y tocá");
+  console.log("                                Habilitar, o creá otra key eligiendo un proyecto NUEVO.");
   console.log("  · \"key ... no es válida\"  -> creá otra en https://aistudio.google.com/apikey y reiniciá.");
   console.log("  · \"cuota\" / 429           -> esperá un minuto: el plan gratuito limita por minuto y por día.");
   console.log("  · \"no está disponible\"    -> cambiá GEMINI_MODEL / GEMINI_MODEL_VOICE / GEMINI_MODEL_EVAL");

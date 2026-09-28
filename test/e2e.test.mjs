@@ -184,6 +184,38 @@ describe("recorrido completo en el navegador", { skip: saltear }, () => {
     assert.equal(cuerpo.length, 0);
   });
 
+  test("interrumpir al cliente lo corta y pasa a escuchar", async () => {
+    await page.locator('.seg button[data-profile="estudiante"]').click();
+    await esperarVista("Simulaciones por voz");
+    await page.locator(".card").first().click();
+    await esperarVista("Simulación");
+    await page.locator("#startCall").click();
+    await esperarVista("Llamada en curso");
+    await page.waitForFunction(() => /hablando/.test(document.querySelector(".state-label").textContent), null, { timeout: 15000 });
+
+    await page.locator(".orb.big").click();
+    await page.waitForFunction(() => /Te escucho|silenciado/.test(document.querySelector(".state-label").textContent), null, { timeout: 10000 });
+    // Lo que alcanzó a decir queda en la transcripción: no se pierde para la evaluación.
+    assert.ok(await page.locator(".transcript .ln.c").count() >= 1);
+  });
+
+  test("si el cliente se despide con [FIN], la llamada se cierra sola", async () => {
+    if (await page.locator(".typebar").isHidden()) await page.locator('button[aria-label="Escribir en vez de hablar"]').click();
+    const campo = page.locator('.typebar input[aria-label="Tu respuesta"]');
+    // Hacen falta al menos dos respuestas del candidato para que se arme el informe.
+    await campo.fill("Entiendo, Laura. ¿Pasa con WhatsApp o también con email?");
+    await campo.press("Enter");
+    await page.waitForFunction(() => document.querySelectorAll(".transcript .ln.u").length >= 1, null, { timeout: 15000 });
+    await campo.fill("Te aviso hoy a las tres, Laura. DECI:Perfecto, quedo a la espera. Gracias, hasta luego. [FIN]");
+    await campo.press("Enter");
+    // Al detectar [FIN] cuelga solo y arranca la evaluación.
+    await esperarVista("Informe");
+    assert.equal(await page.locator(".ring .n b").textContent(), "81");
+    // El [FIN] no tiene que quedar escrito en la transcripción del informe.
+    const conversacion = await page.locator("details.tx").innerText();
+    assert.ok(!/\[FIN\]/.test(conversacion.replace(/DECI:.*/g, "")), "el [FIN] no debería mostrarse");
+  });
+
   test("a 400 px de ancho no se desborda ninguna pantalla", async () => {
     await page.setViewportSize({ width: 400, height: 820 });
     const vistas = [

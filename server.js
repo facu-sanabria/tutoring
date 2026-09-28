@@ -379,8 +379,12 @@ function closeStream(res, vacio) {
   sendEvent(res, { type: "message_stop" });
   try { res.end(); } catch (_) {}
 }
+// La API está creada pero apagada en el proyecto de Google de esa key.
+const apiApagada = msg => /has not been used in project|service[_ ]disabled|accessnotconfigured|api is not enabled/i.test(msg);
+
 // Traduce el error de Gemini a un código HTTP que el front sepa explicar.
 function geminiStatus(status, msg) {
+  if (apiApagada(msg)) return 403;
   if (/api key not valid|api_key_invalid|invalid api key|unauthenticated|permission_denied.*api key/i.test(msg)) return 401;
   if (status === 429 || /quota|rate limit|resource.?exhausted|too many requests/i.test(msg)) return 429;
   if (/not found|is not supported|unknown model|does not exist/i.test(msg)) return 404;
@@ -390,6 +394,13 @@ function geminiStatus(status, msg) {
 function geminiMessage(status, msg) {
   const code = geminiStatus(status, msg);
   const detalle = msg ? ` (${msg.replace(/\s+/g, " ").slice(0, 200)})` : "";
+  if (code === 403 && apiApagada(msg)) {
+    // El mensaje de Google trae el link exacto al proyecto: lo rescatamos.
+    const link = (msg.match(/https:\/\/\S+?generativelanguage\S*?(?=\s|$)/i) || [])[0];
+    return "La API de Gemini está apagada en el proyecto de Google de esa key. "
+      + (link ? `Entrá a ${link} y tocá "Habilitar", esperá 1 o 2 minutos y reiniciá el servidor. ` : 'Habilitá "Generative Language API" en ese proyecto, esperá 1 o 2 minutos y reiniciá el servidor. ')
+      + "Atajo: creá otra key en https://aistudio.google.com/apikey eligiendo un proyecto NUEVO, que ya viene habilitado.";
+  }
   if (code === 401) return `La GEMINI_API_KEY del .env no es válida. Creá otra en https://aistudio.google.com/apikey y reiniciá el servidor.${detalle}`;
   if (code === 429) return `Se agotó la cuota gratuita de Gemini por ahora. Esperá un minuto y probá de nuevo.${detalle}`;
   if (code === 404) return `El modelo "${MODELS.chat}" (o el de voz/evaluación) no está disponible para tu key. Cambiá GEMINI_MODEL en el .env por uno de la lista de AI Studio.${detalle}`;
