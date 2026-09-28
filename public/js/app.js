@@ -1,0 +1,791 @@
+/* Tutoring: lógica de la interfaz. */
+(function () {
+  "use strict";
+
+  // ------------------------------------------------------------------
+  // Utilidades
+  // ------------------------------------------------------------------
+  const $ = id => document.getElementById(id);
+  const store = {
+    get(k, f) { try { const v = localStorage.getItem(k); return v === null ? f : JSON.parse(v); } catch (_) { return f; } },
+    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} }
+  };
+  // Crea elementos sin usar innerHTML con datos del usuario.
+  function h(tag, props, ...kids) {
+    const el = document.createElement(tag);
+    if (props) for (const k in props) {
+      const v = props[k];
+      if (v == null || v === false) continue;
+      if (k === "class") el.className = v;
+      else if (k === "text") el.textContent = v;
+      else if (k === "html") el.innerHTML = v;
+      else if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+      else el.setAttribute(k, v === true ? "" : v);
+    }
+    kids.flat().forEach(c => { if (c != null && c !== false) el.append(c.nodeType ? c : String(c)); });
+    return el;
+  }
+  const svg = (paths, vb = "0 0 20 20") => { const s = document.createElementNS("http://www.w3.org/2000/svg", "svg"); s.setAttribute("viewBox", vb); s.innerHTML = paths; return s; };
+  const esc = s => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+  const clone = o => JSON.parse(JSON.stringify(o));
+  const initials = n => (n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
+  const firstName = n => (n || "").split(/\s+/)[0] || n;
+  const clientName = e => (e.cliente || "El cliente").split(",")[0].trim();
+  const fmtDate = iso => { try { return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (_) { return iso; } };
+  const fmtDur = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
+  let toastT;
+  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2600); }
+
+  const ICON = {
+    sims: '<path d="M10 2.5a3 3 0 0 0-3 3v4a3 3 0 0 0 6 0v-4a3 3 0 0 0-3-3z"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5"/>',
+    reports: '<path d="M5 2.5h7l3 3v12H5z"/><path d="M8 9h5M8 12h5M8 15h3"/>',
+    ctx: '<path d="M3 5.5 10 2.5l7 3-7 3z"/><path d="M3 10l7 3 7-3M3 14.5l7 3 7-3"/>',
+    esc: '<path d="M4 5h12v8H9l-4 3v-3H4z"/>',
+    crit: '<path d="M4 15.5V11M8 15.5V7M12 15.5V9M16 15.5V4"/>',
+    plus: '<path d="M10 4v12M4 10h12"/>',
+    code: '<path d="M7 6 3 10l4 4M13 6l4 4-4 4"/>',
+    flow: '<circle cx="5" cy="5" r="2"/><circle cx="15" cy="15" r="2"/><path d="M7 5h4a4 4 0 0 1 4 4v4"/>',
+    ticket: '<path d="M3 6h14v2.5a1.5 1.5 0 0 0 0 3V14H3v-2.5a1.5 1.5 0 0 0 0-3z"/><path d="M8 6v8" stroke-dasharray="1.5 1.5"/>',
+    check: '<circle cx="10" cy="10" r="7"/><path d="M7 10l2 2 4-4"/>',
+    chevron: '<path d="M5 8l5 5 5-5"/>',
+    x: '<path d="M5 5l10 10M15 5 5 15"/>',
+    mic: '<rect x="7" y="2.5" width="6" height="10" rx="3"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5"/>',
+    micOff: '<path d="M3 3l14 14"/><path d="M7 7v2.5a3 3 0 0 0 5 2.2M13 9V5.5a3 3 0 0 0-5.8-1"/><path d="M4.5 9.5a5.5 5.5 0 0 0 9 4.2M15.5 9.5c0 .6-.1 1.2-.3 1.7M10 15v2.5"/>',
+    keyboard: '<rect x="2.5" y="5" width="15" height="10" rx="2"/><path d="M5.5 8h1M8.5 8h1M11.5 8h1M14.5 8h0M6 12h8"/>',
+    list: '<path d="M7 5.5h10M7 10h10M7 14.5h10M3.5 5.5h0M3.5 10h0M3.5 14.5h0"/>',
+    phone: '<path d="M5.2 3h2.6l1.3 3.4-1.7 1.1a8.5 8.5 0 0 0 5.1 5.1l1.1-1.7 3.4 1.3v2.6a1.6 1.6 0 0 1-1.7 1.6A13.5 13.5 0 0 1 3.6 4.7 1.6 1.6 0 0 1 5.2 3z"/>',
+    hangup: '<path d="M2.5 11.5c4.2-4 10.8-4 15 0l-1.9 2.3-3.1-1.3v-2.1a9 9 0 0 0-5 0v2.1l-3.1 1.3z"/>',
+    play: '<path d="M6 4l10 6-10 6z"/>',
+    download: '<path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/>',
+    back: '<path d="M12 4 6 10l6 6"/>',
+    trash: '<path d="M4 6h12M8 6V4h4v2M6 6l1 11h6l1-11"/>',
+    upload: '<path d="M10 14V3M5.5 7.5 10 3l4.5 4.5M4 17h12"/>'
+  };
+  const icon = k => svg(ICON[k]);
+
+  // ------------------------------------------------------------------
+  // Estado
+  // ------------------------------------------------------------------
+  const S = {
+    profile: "estudiante",
+    view: "sims",
+    params: {},
+    cfg: null,          // configuración de la empresa (la carga el senior)
+    server: null,       // /api/config
+    candidato: store.get("tutoring.candidato", "Lucas Ferreyra"),
+    voiceName: store.get("tutoring.voice", ""),
+    informes: [],
+    dirty: false,
+    engine: null,
+    timer: null,
+    lastCall: null,
+    report: null
+  };
+  const J = store.get("tutoring.junior", { chats: [], current: null }); // chats del junior
+  const JUNIOR = { name: "Camila Ruiz", role: "Junior · semana 3" };
+  const saveJ = () => store.set("tutoring.junior", { chats: J.chats.map(c => ({ ...c, turns: c.turns.filter(t => !t.pending) })), current: J.current });
+
+  const VIEW_LABEL = {
+    sims: "Simulaciones por voz", misinformes: "Mis informes", brief: "Simulación", call: "Llamada en curso", evaluating: "Evaluando", report: "Informe",
+    chat: "Mentor del equipo",
+    contexto: "Contexto de la empresa", escenarios: "Escenarios de simulación", criterios: "Criterios de evaluación", informes: "Informes de candidatos"
+  };
+
+  // ------------------------------------------------------------------
+  // Navegación
+  // ------------------------------------------------------------------
+  function go(view, params = {}) {
+    if (S.view === "call" && view !== "call") endCallSilently();
+    S.view = view; S.params = params;
+    render();
+    $("body").scrollTop = 0;
+    $("side").classList.remove("open");
+  }
+  function setProfile(p) {
+    if (S.dirty && S.profile === "empresa" && p !== "empresa" && !confirm("Hay cambios sin guardar en la configuración. ¿Salir igual? (Los cambios siguen aplicados en esta sesión.)")) return;
+    S.profile = p;
+    go(p === "estudiante" ? "sims" : p === "junior" ? "chat" : "contexto");
+  }
+
+  function render() {
+    document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.profile === S.profile)));
+    renderSide();
+    renderTop();
+    const view = $("view");
+    view.replaceChildren();
+    $("foot").hidden = S.view !== "chat";
+    const fn = VIEWS[S.view];
+    if (fn) fn(view);
+  }
+
+  function renderTop() {
+    $("viewLabel").textContent = VIEW_LABEL[S.view] || "";
+    const st = $("status"); st.replaceChildren();
+    if (!S.server) return;
+    const ok = S.server.hasKey;
+    st.className = "status" + (ok ? "" : " bad");
+    st.append(h("i"), ok ? `IA conectada · ${S.server.providerName || "IA"}` : `Falta ${S.server.keyVar || "la API key"} en .env`);
+  }
+
+  function navBtn(view, label, ic) {
+    return h("button", { "aria-current": S.view === view || (view === "sims" && ["brief", "call", "evaluating"].includes(S.view)) ? "page" : null, onclick: () => go(view) }, icon(ic), label);
+  }
+
+  function renderSide() {
+    const nav = $("sideNav"); nav.replaceChildren();
+    let person;
+    if (S.profile === "estudiante") {
+      nav.append(h("nav", { class: "nav" }, navBtn("sims", "Simulaciones", "sims"), navBtn("misinformes", "Mis informes", "reports")));
+      person = { name: S.candidato, role: "Estudiante · UTN" };
+    } else if (S.profile === "junior") {
+      nav.append(h("button", { class: "new", onclick: () => { J.current = null; saveJ(); go("chat"); $("input").focus(); } }, svg('<path d="M8 3v10M3 8h10" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>', "0 0 16 16"), "Nuevo chat"));
+      nav.append(h("div", { class: "side-label", text: "Conversaciones" }));
+      const hist = h("div", { class: "hist" });
+      if (!J.chats.length) hist.append(h("div", { class: "empty", text: "Todavía no hay conversaciones." }));
+      J.chats.slice().reverse().forEach(c => hist.append(h("button", { class: c.id === J.current ? "on" : null, text: c.title, title: c.title, onclick: () => { J.current = c.id; saveJ(); go("chat"); } })));
+      nav.append(hist);
+      person = JUNIOR;
+    } else {
+      nav.append(h("nav", { class: "nav" },
+        navBtn("contexto", "Contexto", "ctx"), navBtn("escenarios", "Escenarios", "esc"),
+        navBtn("criterios", "Criterios", "crit"), navBtn("informes", "Informes", "reports")));
+      person = { name: S.cfg.senior, role: "Senior · " + S.cfg.empresa };
+    }
+    $("meName").textContent = person.name; $("meRole").textContent = person.role; $("meAv").textContent = initials(person.name);
+  }
+
+  const VIEWS = {};
+
+  // ------------------------------------------------------------------
+  // ESTUDIANTE: inicio
+  // ------------------------------------------------------------------
+  VIEWS.sims = view => {
+    const col = h("div", { class: "col" });
+    const nameInput = h("input", { id: "candidato", type: "text", value: S.candidato, "aria-label": "Tu nombre",
+      onchange: e => { S.candidato = e.target.value.trim() || "Candidato"; store.set("tutoring.candidato", S.candidato); renderSide(); } });
+    const cards = h("div", { class: "cards" });
+    S.cfg.escenarios.forEach(e => cards.append(
+      h("button", { class: "card", onclick: () => go("brief", { id: e.id }) },
+        icon("phone"), h("b", { text: e.titulo }), h("span", { text: e.resumen }),
+        h("div", { class: "meta" }, h("span", { class: "tag", text: `${e.duracion || 5} min` }), h("span", { class: "tag", text: `Dificultad ${String(e.dificultad || "media").toLowerCase()}` })))
+    ));
+    col.append(h("div", { class: "hero" },
+      h("div", { class: "orb", "aria-hidden": "true" }),
+      h("p", { class: "hello", text: `Hola, ${firstName(S.candidato)}` }),
+      h("h1", { class: "ask", text: "¿Qué situación querés practicar?" }),
+      h("p", { class: "sub", text: `Hablás por voz con un cliente de ${S.cfg.empresa}. Al terminar, recibís un informe con tus fortalezas y lo que podés mejorar.` }),
+      h("div", { class: "name-row" }, h("label", { for: "candidato", text: "Practicás como" }), nameInput),
+      cards));
+    const mine = S.informes.filter(r => r.candidato === S.candidato).slice(0, 5);
+    if (mine.length) {
+      col.append(h("div", { class: "section-title" }, h("h2", { text: "Tus simulaciones" }), h("button", { class: "btn-o", onclick: () => go("misinformes") }, "Ver todas")));
+      col.append(reportList(mine));
+    }
+    view.append(col);
+  };
+
+  function reportList(items, showName) {
+    const list = h("div", { class: "list" });
+    items.forEach(r => list.append(h("button", { onclick: () => openReport(r.id) },
+      h("div", null, h("div", { class: "t", text: showName ? `${r.candidato} · ${r.escenario}` : r.escenario }), h("div", { class: "d", text: fmtDate(r.fecha) })),
+      h("span"),
+      h("span", { class: "score-chip", text: r.puntaje != null ? `${r.puntaje}/100` : "—" }))));
+    return list;
+  }
+
+  VIEWS.misinformes = view => {
+    const col = h("div", { class: "col", style: "padding-top:20px" });
+    col.append(h("h1", { text: "Mis informes", style: "font-size:24px;font-weight:600" }));
+    const mine = S.informes.filter(r => r.candidato === S.candidato);
+    col.append(mine.length ? reportList(mine) : h("p", { class: "muted", text: "Todavía no hiciste ninguna simulación." }));
+    view.append(col);
+  };
+
+  // ------------------------------------------------------------------
+  // ESTUDIANTE: antes de la llamada
+  // ------------------------------------------------------------------
+  VIEWS.brief = view => {
+    const e = S.cfg.escenarios.find(x => x.id === S.params.id);
+    if (!e) return go("sims");
+    const sup = T.voice.support();
+    const col = h("div", { class: "col brief" });
+    col.append(h("button", { class: "btn-o", style: "align-self:flex-start", onclick: () => go("sims") }, icon("back"), "Volver"));
+    col.append(h("div", null, h("div", { class: "eyebrow", text: `Simulación · ${e.duracion || 5} min` }), h("h1", { text: e.titulo }), h("p", { class: "lead", text: e.resumen })));
+    col.append(h("div", { class: "info" },
+      h("div", null, h("div", { class: "eyebrow", text: "Con quién hablás" }), h("p", { text: e.cliente })),
+      h("div", null, h("div", { class: "eyebrow", text: "Tu objetivo" }), h("p", { text: e.objetivo }))));
+    col.append(h("ul", { class: "tips" },
+      h("li", { text: "Hablá con naturalidad. Cuando hacés una pausa, el cliente responde." }),
+      h("li", { text: "Si el cliente está hablando, tocá la esfera para interrumpirlo." }),
+      h("li", { text: "La llamada termina cuando se despiden o cuando tocás Colgar." })));
+
+    if (!S.server.hasKey) col.append(h("div", { class: "notice red", text: `Falta la API key: pegala en el archivo .env (${S.server.keyVar || "API key"}) y reiniciá el servidor.` }));
+    if (S.server.voice.provider !== "vapi" && !sup.stt) col.append(h("div", { class: "notice", text: "Este navegador no reconoce voz: vas a poder escribir tus respuestas. Para hablar, usá Chrome o Edge." }));
+
+    if (S.server.voice.provider !== "vapi") {
+      const sel = h("select", { id: "voiceSel", "aria-label": "Voz del cliente", onchange: ev => { S.voiceName = ev.target.value; store.set("tutoring.voice", S.voiceName); } });
+      const test = h("button", { class: "btn-o", onclick: () => {
+        if (!("speechSynthesis" in window)) return;
+        speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(`Hola, soy ${clientName(e)}. ¿Me escuchás bien?`);
+        const v = T.voice.spanishVoices().find(x => x.name === S.voiceName) || T.voice.spanishVoices()[0];
+        if (v) { u.voice = v; u.lang = v.lang; } u.rate = 1.05;
+        speechSynthesis.speak(u);
+      } }, icon("play"), "Probar voz");
+      T.voice.onVoicesReady(voices => {
+        sel.replaceChildren();
+        if (!voices.length) sel.append(h("option", { text: "Voz predeterminada del sistema", value: "" }));
+        voices.forEach(v => sel.append(h("option", { value: v.name, text: `${v.name.replace(/Microsoft |Google /, "")} (${v.lang})`, selected: v.name === S.voiceName })));
+        if (!S.voiceName && voices[0]) S.voiceName = voices[0].name;
+      });
+      col.append(h("div", { class: "voice-row" }, h("label", { for: "voiceSel", class: "muted", text: "Voz del cliente" }), sel, test));
+    }
+    col.append(h("div", null, h("button", { class: "btn lg", id: "startCall", disabled: !S.server.hasKey, onclick: () => go("call", { id: e.id }) }, icon("phone"), "Empezar llamada")));
+    view.append(col);
+  };
+
+  // ------------------------------------------------------------------
+  // ESTUDIANTE: llamada por voz
+  // ------------------------------------------------------------------
+  VIEWS.call = view => {
+    const e = S.cfg.escenarios.find(x => x.id === S.params.id);
+    if (!e) return go("sims");
+    const cName = clientName(e);
+    const sup = T.voice.support();
+    const provider = S.server.voice.provider;
+    const turns = [];
+    let muted = false, started = Date.now(), showTx = false;
+
+    const orb = h("div", { class: "orb big connecting", role: "button", tabindex: "0", "aria-label": "Interrumpir al cliente" });
+    const stateLbl = h("div", { class: "state-label", text: "Conectando…" });
+    const cap = h("div", { class: "caption", text: "" });
+    const capU = h("div", { class: "caption dim", text: "" });
+    const note = h("div", { class: "notice", hidden: true, style: "max-width:600px" });
+    const timer = h("span", { class: "timer", text: "0:00" });
+    const txList = h("div", { class: "transcript", hidden: true });
+
+    const micBtn = h("button", { class: "round", "aria-label": "Silenciar micrófono", title: "Silenciar micrófono" }, icon("mic"));
+    const kbBtn = h("button", { class: "round", "aria-label": "Escribir", title: "Escribir en vez de hablar" }, icon("keyboard"));
+    const txBtn = h("button", { class: "round", "aria-label": "Ver transcripción", title: "Ver transcripción" }, icon("list"));
+    const hang = h("button", { class: "hang", id: "hang" }, icon("hangup"), "Colgar");
+    const typeInput = h("input", { type: "text", placeholder: "Escribí tu respuesta y apretá Enter", "aria-label": "Tu respuesta" });
+    const typebar = h("form", { class: "typebar", hidden: true, onsubmit: ev => { ev.preventDefault(); S.engine && S.engine.sendText(typeInput.value); typeInput.value = ""; } },
+      typeInput, h("button", { class: "btn", type: "submit", text: "Enviar" }));
+
+    view.append(h("div", { class: "call" },
+      h("div", { class: "call-top" }, h("div", { class: "who" }, h("b", { text: cName }), h("span", { text: e.titulo })), timer),
+      h("div", { class: "stage" }, orb, stateLbl, cap, capU, note),
+      h("div", { class: "controls" }, micBtn, hang, kbBtn, txBtn),
+      typebar, txList));
+
+    function addTx(role, text) {
+      turns.push({ role, text });
+      txList.append(h("div", { class: "ln " + (role === "user" ? "u" : "c") }, h("b", { text: role === "user" ? firstName(S.candidato) : cName }), text));
+    }
+    const LABEL = { connecting: "Conectando…", listening: "Te escucho", thinking: `${firstName(cName)} está pensando…`, speaking: `${firstName(cName)} está hablando · tocá para interrumpir`, ended: "Llamada terminada" };
+
+    const engine = T.voice.create(provider, { voiceName: S.voiceName, vapiPublicKey: S.server.voice.vapiPublicKey, vapiAssistantId: S.server.voice.vapiAssistantId, model: S.server.models.voice });
+    S.engine = engine;
+
+    function onEvent(ev) {
+      if (S.engine !== engine) return;
+      switch (ev.type) {
+        case "state":
+          orb.className = "orb big " + ev.state;
+          stateLbl.textContent = muted && ev.state === "listening" ? "Micrófono silenciado · escribí o activalo" : LABEL[ev.state] || "";
+          break;
+        case "level": orb.style.setProperty("--lvl", ev.value.toFixed(3)); break;
+        case "interim": capU.textContent = ev.text; break;
+        case "partial": if (ev.text) cap.textContent = ev.text; break;
+        case "turn":
+          addTx(ev.role, ev.text);
+          if (ev.role === "assistant") cap.textContent = ev.text; else capU.textContent = "";
+          break;
+        case "error": note.hidden = false; note.textContent = ev.message; break;
+        case "end": finishCall(e, turns, Math.round((Date.now() - started) / 1000), ev.reason); break;
+      }
+    }
+
+    orb.addEventListener("click", () => engine.interrupt());
+    orb.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); engine.interrupt(); } });
+    micBtn.addEventListener("click", () => {
+      muted = !muted; engine.setMuted(muted);
+      micBtn.replaceChildren(icon(muted ? "micOff" : "mic")); micBtn.classList.toggle("on", muted);
+      micBtn.setAttribute("aria-label", muted ? "Activar micrófono" : "Silenciar micrófono");
+      if (muted) { typebar.hidden = false; kbBtn.classList.add("on"); }
+    });
+    kbBtn.addEventListener("click", () => { typebar.hidden = !typebar.hidden; kbBtn.classList.toggle("on", !typebar.hidden); if (!typebar.hidden) typeInput.focus(); });
+    txBtn.addEventListener("click", () => { showTx = !showTx; txList.hidden = !showTx; txBtn.classList.toggle("on", showTx); });
+    hang.addEventListener("click", () => engine.stop("user"));
+
+    if (provider !== "vapi" && !sup.stt) { muted = true; micBtn.disabled = true; typebar.hidden = false; kbBtn.classList.add("on"); }
+
+    clearInterval(S.timer);
+    S.timer = setInterval(() => { timer.textContent = fmtDur((Date.now() - started) / 1000); }, 500);
+    engine.start({ system: T.prompts.voz(S.cfg, e, S.candidato), firstUserTurn: T.prompts.vozInicio(e), onEvent });
+  };
+
+  function endCallSilently() {
+    clearInterval(S.timer);
+    if (S.engine) { const en = S.engine; S.engine = null; try { en.stop("user"); } catch (_) {} }
+  }
+
+  function finishCall(e, turns, seconds, reason) {
+    clearInterval(S.timer);
+    S.engine = null;
+    const userTurns = turns.filter(t => t.role === "user").length;
+    S.lastCall = { escenario: e, turns: turns.slice(), seconds, reason };
+    if (userTurns < 2) {
+      const view = $("view"); view.replaceChildren();
+      view.append(h("div", { class: "col hero" },
+        h("div", { class: "orb", "aria-hidden": "true" }),
+        h("h1", { class: "ask", text: "La llamada fue muy corta" }),
+        h("p", { class: "sub", text: "Para armar un informe hacen falta al menos dos respuestas tuyas." }),
+        h("div", { class: "r-actions", style: "justify-content:center" },
+          h("button", { class: "btn", onclick: () => go("call", { id: e.id }) }, "Volver a intentar"),
+          h("button", { class: "btn-o", onclick: () => go("sims") }, "Elegir otra simulación"))));
+      return;
+    }
+    go("evaluating");
+  }
+
+  // ------------------------------------------------------------------
+  // ESTUDIANTE: evaluación
+  // ------------------------------------------------------------------
+  function parseJSON(text) {
+    try { return JSON.parse(text); } catch (_) {}
+    const m = text.match(/```(?:json)?\s*([\s\S]*?)```/); if (m) { try { return JSON.parse(m[1]); } catch (_) {} }
+    const a = text.indexOf("{"), b = text.lastIndexOf("}");
+    if (a >= 0 && b > a) { try { return JSON.parse(text.slice(a, b + 1)); } catch (_) {} }
+    return null;
+  }
+
+  function scoreOf(criteriosDef, evalCrit) {
+    let num = 0, den = 0;
+    criteriosDef.forEach(c => {
+      const r = evalCrit.find(x => (x.nombre || "").trim().toLowerCase() === c.nombre.trim().toLowerCase());
+      const p = r && Number(r.puntaje);
+      if (p >= 1 && p <= 5) { num += p * Number(c.peso || 1); den += 5 * Number(c.peso || 1); }
+    });
+    return den ? Math.round((num / den) * 100) : null;
+  }
+
+  VIEWS.evaluating = view => {
+    const call = S.lastCall; if (!call) return go("sims");
+    const status = h("p", { class: "sub", text: `Aplicando los criterios que definió ${S.cfg.senior} en ${S.cfg.empresa}.` });
+    const box = h("div", { class: "col hero" }, h("div", { class: "orb", "aria-hidden": "true" }), h("h1", { class: "ask", text: "Analizando la conversación…" }), status);
+    view.append(box);
+    runEvaluation(call, box, status);
+  };
+
+  async function runEvaluation(call, box, status) {
+    const cfg = S.cfg, e = call.escenario;
+    try {
+      const text = await T.api.claude({
+        purpose: "eval", maxTokens: 2500,
+        system: "Sos un evaluador riguroso y justo. Respondés solo con JSON válido.",
+        messages: [{ role: "user", content: T.prompts.evaluacion(cfg, e, call.turns, S.candidato, Math.max(1, Math.round(call.seconds / 60))) }]
+      });
+      const ev = parseJSON(text);
+      if (!ev || !Array.isArray(ev.criterios)) throw Object.assign(new Error("json"), { bad: true });
+      const report = {
+        candidato: S.candidato, fecha: new Date().toISOString(), duracionSeg: call.seconds,
+        empresa: cfg.empresa, senior: cfg.senior,
+        escenario: { titulo: e.titulo, resumen: e.resumen, cliente: e.cliente, objetivo: e.objetivo },
+        criteriosDef: clone(cfg.criterios), evaluacion: ev,
+        puntaje: scoreOf(cfg.criterios, ev.criterios),
+        transcripcion: call.turns
+      };
+      try { const { id } = await T.api.informes.save(report); report.id = id; S.informes = await T.api.informes.list(); } catch (_) { toast("No se pudo guardar el informe en el servidor."); }
+      S.report = report; S.lastCall = null;
+      go("report", { id: report.id });
+    } catch (err) {
+      box.replaceChildren(
+        h("div", { class: "orb", "aria-hidden": "true" }),
+        h("h1", { class: "ask", text: "No se pudo armar el informe" }),
+        h("p", { class: "sub", text: err.bad ? "La evaluación vino con un formato inesperado." : T.api.errorCopy(err) }),
+        h("div", { class: "r-actions", style: "justify-content:center" },
+          h("button", { class: "btn", onclick: () => go("evaluating") }, "Reintentar"),
+          h("button", { class: "btn-o", onclick: () => go("sims") }, "Volver")));
+    }
+  }
+
+  // ------------------------------------------------------------------
+  // Informe (lo ven el estudiante y la empresa)
+  // ------------------------------------------------------------------
+  async function openReport(id) {
+    try { S.report = await T.api.informes.get(id); go("report", { id }); }
+    catch (_) { toast("No se pudo abrir el informe."); }
+  }
+
+  function ring(score) {
+    const r = 44, c = 2 * Math.PI * r, v = score == null ? 0 : score / 100;
+    const s = svg(`<circle cx="52" cy="52" r="${r}" fill="none" stroke="#ECEAF1" stroke-width="9"/><circle cx="52" cy="52" r="${r}" fill="none" stroke="#9B7FD6" stroke-width="9" stroke-linecap="round" stroke-dasharray="${(c * v).toFixed(1)} ${c.toFixed(1)}"/>`, "0 0 104 104");
+    return h("div", { class: "ring" }, s, h("div", { class: "n" }, h("div", null, h("b", { text: score == null ? "—" : String(score) }), h("span", { text: "de 100" }))));
+  }
+
+  VIEWS.report = view => {
+    const r = S.report; if (!r) return go(S.profile === "empresa" ? "informes" : "sims");
+    const ev = r.evaluacion || {};
+    const col = h("div", { class: "wide report" });
+
+    const actions = h("div", { class: "r-actions no-print" },
+      h("button", { class: "btn-o", onclick: () => go(S.profile === "empresa" ? "informes" : "sims") }, icon("back"), "Volver"),
+      h("button", { class: "btn-o", onclick: () => window.print() }, icon("download"), "Descargar PDF"));
+    if (S.profile === "estudiante") {
+      const e = S.cfg.escenarios.find(x => x.titulo === r.escenario.titulo);
+      if (e) actions.append(h("button", { class: "btn-o", onclick: () => go("brief", { id: e.id }) }, icon("phone"), "Practicar de nuevo"));
+    }
+    if (S.profile === "empresa" && r.id) actions.append(h("button", { class: "btn-o btn-danger", onclick: async () => {
+      if (!confirm("¿Eliminar este informe?")) return;
+      await T.api.informes.remove(r.id).catch(() => {}); S.informes = await T.api.informes.list().catch(() => S.informes); go("informes");
+    } }, icon("trash"), "Eliminar"));
+    col.append(actions);
+
+    col.append(h("div", { class: "r-head" },
+      h("div", null,
+        h("div", { class: "eyebrow", text: `Informe de habilidades blandas · ${r.empresa}` }),
+        h("h1", { text: r.candidato }),
+        h("div", { class: "r-meta" }, h("span", { text: r.escenario.titulo }), h("span", { text: fmtDate(r.fecha) }), h("span", { text: `Duración ${fmtDur(r.duracionSeg || 0)}` }))),
+      ring(r.puntaje)));
+    if (ev.resumen) col.append(h("p", { class: "r-summary", text: ev.resumen }));
+
+    const list = h("div", { class: "crit-list" });
+    (r.criteriosDef || []).forEach(c => {
+      const x = (ev.criterios || []).find(y => (y.nombre || "").trim().toLowerCase() === c.nombre.trim().toLowerCase()) || {};
+      const p = Number(x.puntaje) || 0;
+      const bars = h("div", { class: "bar5", "aria-label": `${p} de 5` });
+      for (let i = 1; i <= 5; i++) bars.append(h("i", { class: i <= p ? "on" : null }));
+      bars.append(h("b", { text: p ? `${p}/5` : "—" }));
+      list.append(h("div", { class: "crit" },
+        h("div", { class: "nm" }, c.nombre, h("small", { text: `peso ${c.peso}` })), bars,
+        x.comentario ? h("p", { class: "cm", text: x.comentario }) : null,
+        x.evidencia ? h("p", { class: "ev", text: `“${String(x.evidencia).replace(/^["“]|["”]$/g, "")}”` }) : null));
+    });
+    col.append(h("div", null, h("div", { class: "eyebrow", text: "Criterios de la empresa", style: "margin-bottom:8px" }), list));
+
+    const ul = arr => h("ul", null, (arr || []).map(t => h("li", { text: t })));
+    col.append(h("div", { class: "two" },
+      h("div", { class: "box" }, h("h3", null, h("i", { style: "background:var(--green)" }), "Fortalezas"), ul(ev.fortalezas)),
+      h("div", { class: "box" }, h("h3", null, h("i", { style: "background:var(--amber)" }), "A mejorar"), ul(ev.a_mejorar))));
+    col.append(h("div", { class: "two" },
+      h("div", { class: "box" }, h("h3", { text: "Cómo encaró el problema" }), h("ol", null, (ev.como_encaro || []).map(t => h("li", { text: t })))),
+      h("div", { class: "box" }, h("h3", { text: "Cómo se expresó" }), h("p", { text: ev.expresion || "—" }))));
+    if (ev.preguntas_entrevista && ev.preguntas_entrevista.length)
+      col.append(h("div", { class: "box" }, h("h3", { text: "Preguntas sugeridas para la entrevista" }), ul(ev.preguntas_entrevista)));
+
+    const tx = h("div", { class: "transcript" });
+    (r.transcripcion || []).forEach(t => tx.append(h("div", { class: "ln " + (t.role === "user" ? "u" : "c") }, h("b", { text: t.role === "user" ? firstName(r.candidato) : clientName(r.escenario) }), t.text)));
+    col.append(h("details", { class: "tx" }, h("summary", { text: "Ver la conversación completa" }), tx));
+
+    col.append(h("p", { class: "disclaimer", text: `Este informe no recomienda contratar ni descartar: la decisión es de una persona. Evaluación generada con IA según los criterios definidos por ${r.senior} (${r.empresa}), a partir de una simulación. Puede contener errores de transcripción.` }));
+    view.append(col);
+  };
+
+  // ------------------------------------------------------------------
+  // JUNIOR: mentor del equipo
+  // ------------------------------------------------------------------
+  const ACTIONS = [
+    { id: "codigo", icon: "code", title: "Entender el código", desc: "Qué hace cada parte y por qué existe para el negocio.",
+      send: "Explicame qué hace jobs/recordatorios.js y por qué existe." },
+    { id: "metodologia", icon: "flow", title: "Cómo trabajamos", desc: "Metodología, ramas, reviews y deploys del equipo.",
+      send: "¿Cómo trabaja el equipo? Contame el proceso desde que tomo un ticket hasta que llega a producción." },
+    { id: "ticket", icon: "ticket", title: "Encarar un ticket", desc: "Te acompaño a resolverlo entendiendo cada paso.",
+      send: "Me asignaron este ticket:\n\nTF-142 · Prioridad 2\nAlgunos clientes reciben el recordatorio del turno dos veces por WhatsApp. Lo reportaron Clínica Norte y 3 peluquerías. Empezó a mediados de septiembre.\n\n¿Cómo lo encaro?" },
+    { id: "pr", icon: "check", title: "Antes del PR", desc: "Reviso tu cambio con los criterios del senior.",
+      fill: "Revisá mi cambio antes de abrir el PR (ticket TF-142):\n\n```js\n// jobs/recordatorios.js\nfor (const turno of turnos.rows) {\n  // Marco el turno antes de enviar para que no se repita\n  await db.query(\n    \"UPDATE turnos SET recordatorio_enviado = true WHERE id = $1\",\n    [turno.id]\n  );\n  const mensaje = armarMensaje(turno);\n  await whatsapp.enviar(turno.telefono, mensaje);\n}\n```" }
+  ];
+  const ACTION_LABEL = { codigo: "Código", metodologia: "Metodología", ticket: "Ticket", pr: "PR", libre: "Consulta" };
+  let jBusy = false, jCtl = null;
+  const jChat = () => J.chats.find(c => c.id === J.current) || null;
+
+  VIEWS.chat = view => {
+    const c = jChat();
+    const col = h("div", { class: "col" });
+    if (!c) {
+      const cards = h("div", { class: "cards four" });
+      ACTIONS.forEach(a => cards.append(h("button", { class: "card", onclick: () => startAction(a) }, icon(a.icon), h("b", { text: a.title }), h("span", { text: a.desc }))));
+      col.append(h("div", { class: "hero compact" },
+        h("div", { class: "orb", "aria-hidden": "true" }),
+        h("p", { class: "hello", text: `Hola, ${firstName(JUNIOR.name)}` }),
+        h("h1", { class: "ask", text: "¿En qué te ayudo hoy?" }),
+        h("p", { class: "sub", text: `Conozco el código y la forma de trabajar de ${S.cfg.empresa}. Te explico lo técnico y el porqué de negocio.` }),
+        cards));
+    } else {
+      const thread = h("div", { class: "thread", id: "thread" });
+      c.turns.forEach(t => thread.append(bubble(t)));
+      col.append(thread);
+    }
+    view.append(col);
+    renderComposer();
+    if (c) requestAnimationFrame(() => { $("body").scrollTop = $("body").scrollHeight; });
+  };
+
+  function startAction(a) {
+    const c = { id: String(Date.now()), action: a.id, title: `${ACTION_LABEL[a.id]} · ${a.title}`, turns: [] };
+    if (a.fill) {
+      J.chats.push(c); J.current = c.id; saveJ(); go("chat");
+      $("input").value = a.fill; autosize(); $("input").focus();
+      toast("Pegamos un cambio de ejemplo. Tocá enviar o reemplazalo por el tuyo.");
+      return;
+    }
+    J.chats.push(c); J.current = c.id; saveJ();
+    sendJunior(a.send);
+  }
+
+  // Formato de las respuestas del mentor: bloques [Técnico] [Negocio] [Cómo lo hacemos acá] [Tu turno]
+  const TAGS = { "técnico": "tec", "tecnico": "tec", "negocio": "neg", "cómo lo hacemos acá": "met", "como lo hacemos aca": "met", "cómo lo hacemos aca": "met", "tu turno": "tur" };
+  const TAG_LABEL = { tec: "Técnico", neg: "Negocio", met: "Cómo lo hacemos acá", tur: "Tu turno" };
+  function mdInline(s) { return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>"); }
+  function mdText(s) {
+    let html = "";
+    s.split(/\n{2,}/).forEach(block => {
+      block = block.trim(); if (!block) return;
+      const lines = block.split("\n");
+      if (lines.every(l => /^\s*([-*•]|\d+[.)])\s+/.test(l))) {
+        const ord = /^\s*\d+[.)]/.test(lines[0]);
+        html += (ord ? "<ol>" : "<ul>") + lines.map(l => "<li>" + mdInline(l.replace(/^\s*([-*•]|\d+[.)])\s+/, "")) + "</li>").join("") + (ord ? "</ol>" : "</ul>");
+      } else html += "<p>" + mdInline(block).replace(/\n/g, "<br>") + "</p>";
+    });
+    return html;
+  }
+  function renderMentor(text) {
+    const blocks = [{ kind: null, parts: [] }];
+    const cur = () => blocks[blocks.length - 1];
+    const segs = text.split(/(```[\s\S]*?(?:```|$))/g);
+    segs.forEach(seg => {
+      if (seg.startsWith("```")) {
+        const body = seg.replace(/^```[\w-]*\n?/, "").replace(/```$/, "").replace(/\n$/, "");
+        cur().parts.push("<pre><code>" + esc(body) + "</code></pre>");
+        return;
+      }
+      let buf = [];
+      const flush = () => { if (buf.join("").trim()) cur().parts.push(mdText(buf.join("\n"))); buf = []; };
+      seg.split("\n").forEach(line => {
+        const m = line.match(/^\s*\**\[([^\]]+)\]\**:?\s*(.*)$/);
+        const kind = m && TAGS[m[1].trim().toLowerCase()];
+        if (kind) { flush(); blocks.push({ kind, parts: [] }); if (m[2]) buf.push(m[2]); }
+        else buf.push(line);
+      });
+      flush();
+    });
+    return blocks.filter(b => b.parts.length).map(b => b.kind
+      ? `<div class="blk ${b.kind}"><span class="lbl">${TAG_LABEL[b.kind]}</span>${b.parts.join("")}</div>`
+      : b.parts.join("")).join("");
+  }
+
+  function bubble(t) {
+    if (t.role === "user") return h("div", { class: "u", text: t.content });
+    const tx = h("div", { class: "txt", html: t.pending ? '<p class="thinking">Pensando…</p>' : renderMentor(t.content || "") });
+    if (t.error) tx.append(h("p", { class: "err", text: t.error }));
+    return h("div", { class: "a" }, h("div", { class: "mini", "aria-hidden": "true" }), tx);
+  }
+
+  function renderComposer() {
+    const input = $("input");
+    input.placeholder = "Preguntá lo que necesites o pegá tu código…";
+    const send = $("send");
+    send.classList.toggle("stop", jBusy);
+    send.setAttribute("aria-label", jBusy ? "Detener" : "Enviar");
+    send.replaceChildren(jBusy ? svg('<rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="#fff" stroke="none"/>', "0 0 16 16") : svg('<path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke-linecap="round" stroke-linejoin="round"/>', "0 0 16 16"));
+    const line = $("ctxLine"); line.replaceChildren("Entrenado con el contexto de ", h("b", { text: S.cfg.empresa }), `, cargado por ${S.cfg.senior} (senior)`);
+  }
+
+  async function sendJunior(text) {
+    text = (text || "").trim();
+    if (!text || jBusy) return;
+    let c = jChat();
+    if (!c) { c = { id: String(Date.now()), action: "libre", title: text.slice(0, 60), turns: [] }; J.chats.push(c); J.current = c.id; }
+    c.turns.push({ role: "user", content: text });
+    const reply = { role: "assistant", content: "", pending: true };
+    c.turns.push(reply);
+    $("input").value = ""; autosize();
+    jBusy = true; saveJ(); go("chat");
+
+    const msgs = [];
+    c.turns.forEach(t => {
+      if (t === reply || !t.content) return;
+      const last = msgs[msgs.length - 1];
+      if (last && last.role === t.role) last.content += "\n\n" + t.content; else msgs.push({ role: t.role, content: t.content });
+    });
+    while (msgs.length && msgs[0].role !== "user") msgs.shift();
+
+    jCtl = new AbortController();
+    const cid = c.id;
+    try {
+      reply.content = await T.api.claude({
+        purpose: "chat", maxTokens: 1600, signal: jCtl.signal,
+        system: T.prompts.junior(S.cfg, c.action, firstName(JUNIOR.name)),
+        messages: msgs.slice(-30),
+        onText: txt => {
+          reply.pending = false; reply.content = txt;
+          if (S.view === "chat" && J.current === cid) {
+            const th = $("thread"); const last = th && th.lastElementChild;
+            const tx = last && last.querySelector(".txt");
+            if (tx) { tx.innerHTML = renderMentor(txt); $("body").scrollTop = $("body").scrollHeight; }
+          }
+        }
+      });
+      reply.pending = false;
+      if (!reply.content) reply.error = "El mentor no devolvió texto. Probá reformular.";
+    } catch (e) {
+      reply.pending = false;
+      if (e.name === "AbortError") { if (!reply.content) reply.content = "(Detenido)"; }
+      else { if (e.partial) reply.content = e.partial; reply.error = T.api.errorCopy(e); }
+    } finally {
+      jBusy = false; jCtl = null; saveJ();
+      if (S.view === "chat") render(); else renderSide();
+    }
+  }
+
+  function autosize() { const i = $("input"); i.style.height = "auto"; i.style.height = Math.min(i.scrollHeight, 200) + "px"; }
+  $("input").addEventListener("input", autosize);
+  $("input").addEventListener("keydown", e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendJunior($("input").value); } });
+  $("send").addEventListener("click", () => { if (jBusy) { if (jCtl) jCtl.abort(); } else sendJunior($("input").value); });
+  $("pasteCode").addEventListener("click", () => {
+    const i = $("input");
+    const pre = i.value ? i.value.replace(/\s*$/, "") + "\n\n" : "";
+    i.value = pre + "```js\n\n```";
+    const pos = pre.length + 6; i.focus(); i.setSelectionRange(pos, pos); autosize();
+  });
+
+  // ------------------------------------------------------------------
+  // EMPRESA (senior): configuración
+  // ------------------------------------------------------------------
+  function markDirty() { S.dirty = true; const d = document.querySelector(".dirty"); if (d) d.hidden = false; const b = $("saveCfg"); if (b) b.disabled = false; }
+  async function saveCfg() {
+    try { await T.api.empresa.save(S.cfg); S.dirty = false; render(); toast("Configuración guardada. El agente ya la usa."); }
+    catch (_) { toast("No se pudo guardar. ¿Sigue corriendo el servidor?"); }
+  }
+  function cfgHead(title, sub) {
+    return h("div", { class: "cfg-head" },
+      h("div", null, h("h1", { text: title }), h("p", { text: sub })),
+      h("div", { style: "display:flex;gap:10px;align-items:center" },
+        h("span", { class: "dirty", hidden: !S.dirty, text: "Cambios sin guardar" }),
+        h("button", { class: "btn", id: "saveCfg", disabled: !S.dirty, onclick: saveCfg }, "Guardar cambios")));
+  }
+  function field(label, help, control) {
+    const id = control.id || ("f" + Math.random().toString(36).slice(2, 8)); control.id = id;
+    return h("div", { class: "field" }, h("label", { for: id }, label, help ? h("span", { class: "help", text: help }) : null), control);
+  }
+  function autoGrow(t) { const f = () => { t.style.height = "auto"; t.style.height = Math.max(84, t.scrollHeight + 2) + "px"; }; t.addEventListener("input", f); requestAnimationFrame(f); return t; }
+
+  VIEWS.contexto = view => {
+    const col = h("div", { class: "wide cfg" });
+    col.append(cfgHead("Contexto de la empresa", "Lo cargás una vez. El mentor de los juniors y las simulaciones usan todo esto para responder y evaluar."));
+    const inp = (key, obj) => h("input", { type: "text", value: obj[key] || "", oninput: e => { obj[key] = e.target.value; markDirty(); } });
+    col.append(h("div", { class: "grid2" }, field("Empresa", null, inp("empresa", S.cfg)), field("Senior responsable", null, inp("senior", S.cfg))));
+    T.CONTEXT_SECTIONS.forEach(s => {
+      const t = autoGrow(h("textarea", { oninput: e => { S.cfg.contexto[s.key] = e.target.value; markDirty(); } }));
+      t.value = S.cfg.contexto[s.key] || "";
+      col.append(field(s.titulo, s.ayuda, t));
+    });
+
+    const files = h("div", { class: "files" });
+    const drawFiles = () => {
+      files.replaceChildren();
+      if (!S.cfg.archivos.length) files.append(h("span", { class: "muted", text: "Sin archivos cargados." }));
+      S.cfg.archivos.forEach((f, i) => files.append(h("div", { class: "fchip" }, h("span", { text: f.nombre }),
+        h("button", { "aria-label": "Quitar " + f.nombre, onclick: () => { S.cfg.archivos.splice(i, 1); markDirty(); drawFiles(); } }, "×"))));
+    };
+    drawFiles();
+    const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".txt,.md,.json,.js,.ts,.jsx,.tsx,.py,.java,.sql,.css,.html,.yml,.yaml,.xml,.cs,.php,.go,.rb" });
+    fileInput.addEventListener("change", async ev => {
+      for (const f of Array.from(ev.target.files)) {
+        let c = await f.text().catch(() => null); if (c == null) continue;
+        if (c.length > 60000) c = c.slice(0, 60000) + "\n[… archivo recortado]";
+        S.cfg.archivos = S.cfg.archivos.filter(x => x.nombre !== f.name); S.cfg.archivos.push({ nombre: f.name, contenido: c });
+      }
+      ev.target.value = ""; markDirty(); drawFiles();
+    });
+    col.append(h("div", { class: "field" },
+      h("label", null, "Archivos del repositorio", h("span", { class: "help", text: "Código o documentación que el mentor puede citar." })),
+      files, h("div", null, h("button", { class: "btn-o", onclick: () => fileInput.click() }, icon("upload"), "Agregar archivos")), fileInput));
+    col.append(h("div", null, h("button", { class: "btn-o", onclick: () => { if (confirm("¿Reemplazar todo por la configuración de ejemplo?")) { S.cfg = clone(T.DEFAULTS); markDirty(); render(); } } }, "Restaurar ejemplo")));
+    view.append(col);
+  };
+
+  VIEWS.escenarios = view => {
+    const col = h("div", { class: "wide cfg" });
+    col.append(cfgHead("Escenarios de simulación", "Las situaciones que practican los candidatos. La IA interpreta al cliente con estos datos."));
+    const open = S.params.open;
+    S.cfg.escenarios.forEach((e, i) => {
+      const isOpen = open === e.id;
+      const acc = h("div", { class: "acc" + (isOpen ? " open" : "") });
+      acc.append(h("button", { class: "acc-h", "aria-expanded": String(isOpen), onclick: () => { S.params = { open: isOpen ? null : e.id }; render(); } },
+        h("div", null, h("b", { text: e.titulo || "Sin título" }), h("span", { text: e.resumen })), icon("chevron")));
+      if (isOpen) {
+        const tx = (key, rows) => { const t = autoGrow(h("textarea", { rows, oninput: ev => { e[key] = ev.target.value; markDirty(); } })); t.value = e[key] || ""; return t; };
+        const tin = key => h("input", { type: "text", value: e[key] || "", oninput: ev => { e[key] = ev.target.value; markDirty(); } });
+        const dif = h("select", { onchange: ev => { e.dificultad = ev.target.value; markDirty(); } }, ["Baja", "Media", "Alta"].map(d => h("option", { value: d, text: d, selected: e.dificultad === d })));
+        const dur = h("input", { type: "number", min: "2", max: "20", value: e.duracion || 5, oninput: ev => { e.duracion = Number(ev.target.value) || 5; markDirty(); } });
+        acc.append(h("div", { class: "acc-b" },
+          field("Título", null, tin("titulo")),
+          field("Resumen", "Lo que ve el candidato antes de empezar.", tin("resumen")),
+          field("Cliente", "Nombre, rol y empresa.", tin("cliente")),
+          field("Personalidad", "Cómo habla y cómo reacciona.", tx("personalidad")),
+          field("Situación", "Incluí los datos que solo da si le preguntan.", tx("situacion")),
+          field("Objetivo del candidato", null, tx("objetivo")),
+          h("div", { class: "grid2" }, field("Duración (min)", null, dur), field("Dificultad", null, dif)),
+          h("div", null, h("button", { class: "btn-o btn-danger", onclick: () => { if (confirm(`¿Eliminar "${e.titulo}"?`)) { S.cfg.escenarios.splice(i, 1); markDirty(); render(); } } }, icon("trash"), "Eliminar escenario"))));
+      }
+      col.append(acc);
+    });
+    col.append(h("div", null, h("button", { class: "btn-o", onclick: () => {
+      const e = { id: "esc-" + Date.now(), titulo: "Nuevo escenario", resumen: "", cliente: "", personalidad: "", situacion: "", objetivo: "", duracion: 5, dificultad: "Media" };
+      S.cfg.escenarios.push(e); markDirty(); S.params = { open: e.id }; render();
+    } }, icon("plus"), "Agregar escenario")));
+    view.append(col);
+  };
+
+  VIEWS.criterios = view => {
+    const col = h("div", { class: "wide cfg" });
+    col.append(cfgHead("Criterios de evaluación", "Qué habilidades se evalúan en cada simulación y cuánto pesa cada una en el puntaje."));
+    col.append(h("div", { class: "crit-head" }, h("span", { text: "Competencia" }), h("span", { text: "Qué se observa" }), h("span", { text: "Peso" }), h("span")));
+    S.cfg.criterios.forEach((c, i) => {
+      col.append(h("div", { class: "crit-row" },
+        h("input", { type: "text", value: c.nombre, "aria-label": "Competencia", oninput: e => { c.nombre = e.target.value; markDirty(); } }),
+        h("input", { type: "text", value: c.descripcion, "aria-label": "Qué se observa", oninput: e => { c.descripcion = e.target.value; markDirty(); } }),
+        h("select", { "aria-label": "Peso", onchange: e => { c.peso = Number(e.target.value); markDirty(); } },
+          [[1, "Bajo"], [2, "Medio"], [3, "Alto"]].map(([v, t]) => h("option", { value: v, text: `${t} (${v})`, selected: Number(c.peso) === v }))),
+        h("button", { class: "icon-x", "aria-label": "Quitar " + c.nombre, onclick: () => { S.cfg.criterios.splice(i, 1); markDirty(); render(); } }, icon("x"))));
+    });
+    col.append(h("div", null, h("button", { class: "btn-o", onclick: () => { S.cfg.criterios.push({ nombre: "", descripcion: "", peso: 2 }); markDirty(); render(); } }, icon("plus"), "Agregar criterio")));
+    const notes = autoGrow(h("textarea", { oninput: e => { S.cfg.notasEvaluacion = e.target.value; markDirty(); } }));
+    notes.value = S.cfg.notasEvaluacion || "";
+    col.append(field("Notas para el evaluador", "Lo que más valoran como empresa.", notes));
+    view.append(col);
+  };
+
+  VIEWS.informes = view => {
+    const col = h("div", { class: "wide cfg" });
+    col.append(h("div", { class: "cfg-head" }, h("div", null, h("h1", { text: "Informes de candidatos" }), h("p", { text: "Resultados de las simulaciones. La decisión siempre la toma una persona." }))));
+    col.append(S.informes.length ? reportList(S.informes, true) : h("p", { class: "muted", text: "Todavía no hay informes. Aparecen acá cuando un candidato termina una simulación." }));
+    view.append(col);
+  };
+
+  // ------------------------------------------------------------------
+  // Arranque
+  // ------------------------------------------------------------------
+  document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => setProfile(b.dataset.profile)));
+  $("menu").addEventListener("click", () => $("side").classList.toggle("open"));
+  window.addEventListener("beforeunload", ev => { if (S.dirty) { ev.preventDefault(); ev.returnValue = ""; } });
+
+  async function boot() {
+    if (!location.protocol.startsWith("http")) {
+      document.body.replaceChildren(h("div", { class: "notice", style: "max-width:560px;margin:10vh auto;font-size:15px" },
+        "Esta app se abre desde el servidor: en la carpeta del proyecto ejecutá ", h("b", { text: "npm start" }), " y entrá a ", h("b", { text: "http://localhost:3000" }), "."));
+      return;
+    }
+    try { S.server = await T.api.config(); }
+    catch (_) { S.server = { hasKey: false, models: {}, voice: { provider: "browser" } }; }
+    T.api.setProvider(S.server);
+    try { S.cfg = await T.api.empresa.get(); } catch (_) { S.cfg = clone(T.DEFAULTS); }
+    // Completa campos que falten (por si la configuración guardada es de una versión anterior).
+    S.cfg = Object.assign(clone(T.DEFAULTS), S.cfg);
+    S.cfg.contexto = Object.assign({}, T.DEFAULTS.contexto, S.cfg.contexto);
+    try { S.informes = await T.api.informes.list(); } catch (_) { S.informes = []; }
+    render();
+  }
+  boot();
+})();

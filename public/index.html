@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tutoring</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Figtree:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap">
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="shell">
+  <aside class="side" id="side">
+    <div class="logo"><span class="mark"><svg viewBox="0 0 16 16"><path d="M3 11.5 8 4l5 7.5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Tutoring</div>
+    <div class="seg" role="group" aria-label="Perfil">
+      <button data-profile="estudiante" aria-pressed="true">Estudiante</button>
+      <button data-profile="junior" aria-pressed="false">Junior</button>
+      <button data-profile="empresa" aria-pressed="false">Empresa</button>
+    </div>
+    <div id="sideNav" class="side-dyn" style="display:flex;flex-direction:column;gap:14px;min-height:0;flex:1"></div>
+    <div class="me"><div class="av" id="meAv"></div><div><b id="meName"></b><span id="meRole"></span></div></div>
+  </aside>
+
+  <section class="main">
+    <header class="top">
+      <div class="top-l">
+        <button class="menu" id="menu" aria-label="Menú"><svg viewBox="0 0 20 20"><path d="M3 6h14M3 10h14M3 14h14"/></svg></button>
+        <div class="pill"><span class="dot"></span><span id="viewLabel"></span></div>
+      </div>
+      <div class="status" id="status"></div>
+    </header>
+    <div class="body" id="body"><div id="view"></div></div>
+    <div class="foot" id="foot" hidden>
+      <div class="col">
+        <div class="composer">
+          <label for="input" style="position:absolute;left:-9999px">Mensaje</label>
+          <textarea id="input" rows="1"></textarea>
+          <div class="c-row">
+            <div class="chips">
+              <button class="chip" id="pasteCode"><svg viewBox="0 0 16 16"><path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4"/></svg>Pegar código</button>
+            </div>
+            <button class="send" id="send" aria-label="Enviar"></button>
+          </div>
+          <div class="ctx-line"><svg viewBox="0 0 16 16"><path d="M3 8.5 6.5 12 13 4.5" stroke-linecap="round" stroke-linejoin="round"/></svg><span id="ctxLine"></span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script src="js/defaults.js"></script>
+<script src="js/api.js"></script>
+<script src="js/prompts.js"></script>
+<script src="js/voice.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
