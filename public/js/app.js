@@ -6,9 +6,16 @@
   // Utilidades
   // ------------------------------------------------------------------
   const $ = id => document.getElementById(id);
+  let avisoStorage = false;
   const store = {
     get(k, f) { try { const v = localStorage.getItem(k); return v === null ? f : JSON.parse(v); } catch (_) { return f; } },
-    set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch (_) {} }
+    set(k, v) {
+      try { localStorage.setItem(k, JSON.stringify(v)); return true; }
+      catch (_) {
+        if (!avisoStorage) { avisoStorage = true; setTimeout(() => toast("No se pudo guardar en este navegador (almacenamiento lleno o modo privado)."), 0); }
+        return false;
+      }
+    }
   };
   // Crea elementos sin usar innerHTML con datos del usuario.
   function h(tag, props, ...kids) {
@@ -81,9 +88,16 @@
     lastCall: null,
     report: null
   };
+  let navToken = 0;   // corta el trabajo asíncrono de una pantalla que ya se abandonó
   const J = store.get("tutoring.junior", { chats: [], current: null }); // chats del junior
   const JUNIOR = { name: "Camila Ruiz", role: "Junior · semana 3" };
-  const saveJ = () => store.set("tutoring.junior", { chats: J.chats.map(c => ({ ...c, turns: c.turns.filter(t => !t.pending) })), current: J.current });
+  // Guardamos solo las últimas conversaciones: el localStorage tiene ~5 MB y los
+  // chats con código pegado lo llenan rápido.
+  const MAX_CHATS = 20;
+  const saveJ = () => {
+    if (J.chats.length > MAX_CHATS) J.chats = J.chats.slice(-MAX_CHATS);
+    store.set("tutoring.junior", { chats: J.chats.map(c => ({ ...c, turns: c.turns.filter(t => !t.pending) })), current: J.current });
+  };
 
   const VIEW_LABEL = {
     sims: "Simulaciones por voz", misinformes: "Mis informes", brief: "Simulación", call: "Llamada en curso", evaluating: "Evaluando", report: "Informe",
@@ -96,10 +110,15 @@
   // ------------------------------------------------------------------
   function go(view, params = {}) {
     if (S.view === "call" && view !== "call") endCallSilently();
+    navToken++;
     S.view = view; S.params = params;
     render();
     $("body").scrollTop = 0;
+    cerrarMenu();
+  }
+  function cerrarMenu() {
     $("side").classList.remove("open");
+    $("menu").setAttribute("aria-expanded", "false");
   }
   function setProfile(p) {
     if (S.dirty && S.profile === "empresa" && p !== "empresa" && !confirm("Hay cambios sin guardar en la configuración. ¿Salir igual? (Los cambios siguen aplicados en esta sesión.)")) return;
@@ -164,6 +183,7 @@
     const nameInput = h("input", { id: "candidato", type: "text", value: S.candidato, "aria-label": "Tu nombre",
       onchange: e => { S.candidato = e.target.value.trim() || "Candidato"; store.set("tutoring.candidato", S.candidato); renderSide(); } });
     const cards = h("div", { class: "cards" });
+    if (!S.cfg.escenarios.length) cards.append(h("div", { class: "notice", text: "Todavía no hay escenarios cargados. El senior los crea desde el perfil Empresa → Escenarios." }));
     S.cfg.escenarios.forEach(e => cards.append(
       h("button", { class: "card", onclick: () => go("brief", { id: e.id }) },
         icon("phone"), h("b", { text: e.titulo }), h("span", { text: e.resumen }),
@@ -220,7 +240,9 @@
       h("li", { text: "La llamada termina cuando se despiden o cuando tocás Colgar." })));
 
     if (!S.server.hasKey) col.append(h("div", { class: "notice red", text: `Falta la API key: pegala en el archivo .env (${S.server.keyVar || "API key"}) y reiniciá el servidor.` }));
+    if (!S.cfg.criterios.length) col.append(h("div", { class: "notice red", text: "No hay criterios de evaluación cargados: la simulación va a funcionar, pero no se puede armar el informe. Cargalos en Empresa → Criterios." }));
     if (S.server.voice.provider !== "vapi" && !sup.stt) col.append(h("div", { class: "notice", text: "Este navegador no reconoce voz: vas a poder escribir tus respuestas. Para hablar, usá Chrome o Edge." }));
+    if (S.server.voice.provider !== "vapi" && !sup.tts) col.append(h("div", { class: "notice", text: "Este navegador no puede leer en voz alta: vas a ver lo que dice el cliente como texto." }));
 
     if (S.server.voice.provider !== "vapi") {
       const sel = h("select", { id: "voiceSel", "aria-label": "Voz del cliente", onchange: ev => { S.voiceName = ev.target.value; store.set("tutoring.voice", S.voiceName); } });
@@ -256,17 +278,17 @@
     const turns = [];
     let muted = false, started = Date.now(), showTx = false;
 
-    const orb = h("div", { class: "orb big connecting", role: "button", tabindex: "0", "aria-label": "Interrumpir al cliente" });
-    const stateLbl = h("div", { class: "state-label", text: "Conectando…" });
-    const cap = h("div", { class: "caption", text: "" });
+    const orb = h("div", { class: "orb big connecting", role: "button", tabindex: "0", "aria-label": `Interrumpir a ${cName}` });
+    const stateLbl = h("div", { class: "state-label", role: "status", "aria-live": "polite", text: "Conectando…" });
+    const cap = h("div", { class: "caption", "aria-live": "polite", "aria-atomic": "true", text: "" });
     const capU = h("div", { class: "caption dim", text: "" });
-    const note = h("div", { class: "notice", hidden: true, style: "max-width:600px" });
-    const timer = h("span", { class: "timer", text: "0:00" });
+    const note = h("div", { class: "notice", role: "alert", hidden: true, style: "max-width:600px" });
+    const timer = h("span", { class: "timer", text: "0:00", "aria-label": "Duración de la llamada" });
     const txList = h("div", { class: "transcript", hidden: true });
 
-    const micBtn = h("button", { class: "round", "aria-label": "Silenciar micrófono", title: "Silenciar micrófono" }, icon("mic"));
-    const kbBtn = h("button", { class: "round", "aria-label": "Escribir", title: "Escribir en vez de hablar" }, icon("keyboard"));
-    const txBtn = h("button", { class: "round", "aria-label": "Ver transcripción", title: "Ver transcripción" }, icon("list"));
+    const micBtn = h("button", { class: "round", "aria-label": "Silenciar micrófono", "aria-pressed": "false", title: "Silenciar micrófono" }, icon("mic"));
+    const kbBtn = h("button", { class: "round", "aria-label": "Escribir en vez de hablar", "aria-pressed": "false", "aria-expanded": "false", title: "Escribir en vez de hablar" }, icon("keyboard"));
+    const txBtn = h("button", { class: "round", "aria-label": "Ver transcripción", "aria-pressed": "false", title: "Ver transcripción" }, icon("list"));
     const hang = h("button", { class: "hang", id: "hang" }, icon("hangup"), "Colgar");
     const typeInput = h("input", { type: "text", placeholder: "Escribí tu respuesta y apretá Enter", "aria-label": "Tu respuesta" });
     const typebar = h("form", { class: "typebar", hidden: true, onsubmit: ev => { ev.preventDefault(); S.engine && S.engine.sendText(typeInput.value); typeInput.value = ""; } },
@@ -282,9 +304,21 @@
       turns.push({ role, text });
       txList.append(h("div", { class: "ln " + (role === "user" ? "u" : "c") }, h("b", { text: role === "user" ? firstName(S.candidato) : cName }), text));
     }
-    const LABEL = { connecting: "Conectando…", listening: "Te escucho", thinking: `${firstName(cName)} está pensando…`, speaking: `${firstName(cName)} está hablando · tocá para interrumpir`, ended: "Llamada terminada" };
+    function abrirTeclado(foco) {
+      typebar.hidden = false;
+      kbBtn.classList.add("on");
+      kbBtn.setAttribute("aria-pressed", "true"); kbBtn.setAttribute("aria-expanded", "true");
+      if (foco) typeInput.focus();
+    }
+    const LABEL = { connecting: "Conectando…", listening: "Te escucho", thinking: `${firstName(cName)} está pensando`, speaking: `${firstName(cName)} está hablando · tocá para interrumpir`, ended: "Llamada terminada" };
 
-    const engine = T.voice.create(provider, { voiceName: S.voiceName, vapiPublicKey: S.server.voice.vapiPublicKey, vapiAssistantId: S.server.voice.vapiAssistantId, model: S.server.models.voice });
+    const engine = T.voice.create(provider, {
+      voiceName: S.voiceName,
+      vapiPublicKey: S.server.voice.vapiPublicKey,
+      vapiAssistantId: S.server.voice.vapiAssistantId,
+      vapiModel: S.server.models.voice,
+      vapiModelProvider: S.server.provider === "gemini" ? "google" : "anthropic"
+    });
     S.engine = engine;
 
     function onEvent(ev) {
@@ -292,33 +326,56 @@
       switch (ev.type) {
         case "state":
           orb.className = "orb big " + ev.state;
-          stateLbl.textContent = muted && ev.state === "listening" ? "Micrófono silenciado · escribí o activalo" : LABEL[ev.state] || "";
+          stateLbl.textContent = muted && ev.state === "listening" ? "Micrófono silenciado · escribí tu respuesta" : LABEL[ev.state] || "";
+          // Mientras el cliente piensa, dejamos a la vista que la llamada sigue.
+          if (ev.state === "thinking") { cap.textContent = "···"; cap.classList.add("pensando"); }
+          if (ev.state === "listening") note.hidden = true;
           break;
-        case "level": orb.style.setProperty("--lvl", ev.value.toFixed(3)); break;
+        case "level": orb.style.setProperty("--lvl", Number(ev.value || 0).toFixed(3)); break;
         case "interim": capU.textContent = ev.text; break;
-        case "partial": if (ev.text) cap.textContent = ev.text; break;
+        case "partial": if (ev.text) { cap.classList.remove("pensando"); cap.textContent = ev.text; } break;
         case "turn":
           addTx(ev.role, ev.text);
-          if (ev.role === "assistant") cap.textContent = ev.text; else capU.textContent = "";
+          if (ev.role === "assistant") { cap.classList.remove("pensando"); cap.textContent = ev.text; } else capU.textContent = "";
           break;
-        case "error": note.hidden = false; note.textContent = ev.message; break;
+        case "error":
+          note.hidden = false; note.textContent = ev.message;
+          if (ev.code === "mic") {
+            muted = true;
+            micBtn.classList.add("on"); micBtn.setAttribute("aria-pressed", "true");
+            micBtn.replaceChildren(icon("micOff"));
+            micBtn.setAttribute("aria-label", "Activar micrófono");
+            abrirTeclado(true);
+          }
+          break;
         case "end": finishCall(e, turns, Math.round((Date.now() - started) / 1000), ev.reason); break;
       }
     }
 
-    orb.addEventListener("click", () => engine.interrupt());
-    orb.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); engine.interrupt(); } });
+    const interrumpir = () => { if (engine.state === "speaking" || engine.state === "thinking") engine.interrupt(); };
+    orb.addEventListener("click", interrumpir);
+    orb.addEventListener("keydown", ev => { if (ev.key === "Enter" || ev.key === " ") { ev.preventDefault(); interrumpir(); } });
     micBtn.addEventListener("click", () => {
       muted = !muted; engine.setMuted(muted);
       micBtn.replaceChildren(icon(muted ? "micOff" : "mic")); micBtn.classList.toggle("on", muted);
+      micBtn.setAttribute("aria-pressed", String(muted));
       micBtn.setAttribute("aria-label", muted ? "Activar micrófono" : "Silenciar micrófono");
-      if (muted) { typebar.hidden = false; kbBtn.classList.add("on"); }
+      if (muted) abrirTeclado(false);
+      if (engine.state === "listening") stateLbl.textContent = muted ? "Micrófono silenciado · escribí tu respuesta" : LABEL.listening;
     });
-    kbBtn.addEventListener("click", () => { typebar.hidden = !typebar.hidden; kbBtn.classList.toggle("on", !typebar.hidden); if (!typebar.hidden) typeInput.focus(); });
-    txBtn.addEventListener("click", () => { showTx = !showTx; txList.hidden = !showTx; txBtn.classList.toggle("on", showTx); });
+    kbBtn.addEventListener("click", () => {
+      const abrir = typebar.hidden;
+      if (abrir) return abrirTeclado(true);
+      typebar.hidden = true; kbBtn.classList.remove("on");
+      kbBtn.setAttribute("aria-pressed", "false"); kbBtn.setAttribute("aria-expanded", "false");
+    });
+    txBtn.addEventListener("click", () => {
+      showTx = !showTx; txList.hidden = !showTx;
+      txBtn.classList.toggle("on", showTx); txBtn.setAttribute("aria-pressed", String(showTx));
+    });
     hang.addEventListener("click", () => engine.stop("user"));
 
-    if (provider !== "vapi" && !sup.stt) { muted = true; micBtn.disabled = true; typebar.hidden = false; kbBtn.classList.add("on"); }
+    if (provider !== "vapi" && !sup.stt) { muted = true; micBtn.disabled = true; abrirTeclado(false); }
 
     clearInterval(S.timer);
     S.timer = setInterval(() => { timer.textContent = fmtDur((Date.now() - started) / 1000); }, 500);
@@ -352,58 +409,53 @@
   // ------------------------------------------------------------------
   // ESTUDIANTE: evaluación
   // ------------------------------------------------------------------
-  function parseJSON(text) {
-    try { return JSON.parse(text); } catch (_) {}
-    const m = text.match(/```(?:json)?\s*([\s\S]*?)```/); if (m) { try { return JSON.parse(m[1]); } catch (_) {} }
-    const a = text.indexOf("{"), b = text.lastIndexOf("}");
-    if (a >= 0 && b > a) { try { return JSON.parse(text.slice(a, b + 1)); } catch (_) {} }
-    return null;
-  }
-
-  function scoreOf(criteriosDef, evalCrit) {
-    let num = 0, den = 0;
-    criteriosDef.forEach(c => {
-      const r = evalCrit.find(x => (x.nombre || "").trim().toLowerCase() === c.nombre.trim().toLowerCase());
-      const p = r && Number(r.puntaje);
-      if (p >= 1 && p <= 5) { num += p * Number(c.peso || 1); den += 5 * Number(c.peso || 1); }
-    });
-    return den ? Math.round((num / den) * 100) : null;
-  }
-
   VIEWS.evaluating = view => {
     const call = S.lastCall; if (!call) return go("sims");
     const status = h("p", { class: "sub", text: `Aplicando los criterios que definió ${S.cfg.senior} en ${S.cfg.empresa}.` });
-    const box = h("div", { class: "col hero" }, h("div", { class: "orb", "aria-hidden": "true" }), h("h1", { class: "ask", text: "Analizando la conversación…" }), status);
+    const box = h("div", { class: "col hero" }, h("div", { class: "orb", "aria-hidden": "true" }),
+      h("h1", { class: "ask", text: "Analizando la conversación…" }), status);
     view.append(box);
-    runEvaluation(call, box, status);
+    runEvaluation(call, box);
   };
 
-  async function runEvaluation(call, box, status) {
+  async function runEvaluation(call, box) {
     const cfg = S.cfg, e = call.escenario;
+    // Si el usuario navega a otra pantalla mientras evaluamos, no le robamos la vista.
+    const token = ++navToken;
+    const vigente = () => navToken === token && S.view === "evaluating";
     try {
       const text = await T.api.claude({
         purpose: "eval", maxTokens: 2500,
-        system: "Sos un evaluador riguroso y justo. Respondés solo con JSON válido.",
+        system: "Sos un evaluador riguroso y justo. Respondés solo con un objeto JSON válido, sin texto alrededor.",
         messages: [{ role: "user", content: T.prompts.evaluacion(cfg, e, call.turns, S.candidato, Math.max(1, Math.round(call.seconds / 60))) }]
       });
-      const ev = parseJSON(text);
-      if (!ev || !Array.isArray(ev.criterios)) throw Object.assign(new Error("json"), { bad: true });
+      const ev = T.core.parseEvaluacion(text);
+      if (!ev) throw Object.assign(new Error("formato inesperado"), { bad: true });
+      const p = T.core.puntajePonderado(cfg.criterios, ev.criterios);
       const report = {
         candidato: S.candidato, fecha: new Date().toISOString(), duracionSeg: call.seconds,
         empresa: cfg.empresa, senior: cfg.senior,
         escenario: { titulo: e.titulo, resumen: e.resumen, cliente: e.cliente, objetivo: e.objetivo },
         criteriosDef: clone(cfg.criterios), evaluacion: ev,
-        puntaje: scoreOf(cfg.criterios, ev.criterios),
+        puntaje: p.puntaje, criteriosPuntuados: p.cubiertos,
         transcripcion: call.turns
       };
-      try { const { id } = await T.api.informes.save(report); report.id = id; S.informes = await T.api.informes.list(); } catch (_) { toast("No se pudo guardar el informe en el servidor."); }
+      try {
+        const { id } = await T.api.informes.save(report);
+        report.id = id;
+        S.informes = await T.api.informes.list();
+      } catch (err) {
+        toast("El informe se armó, pero no se pudo guardar en el servidor: " + T.api.errorCopy(err));
+      }
       S.report = report; S.lastCall = null;
+      if (!vigente()) { toast("El informe quedó listo en “Mis informes”."); return; }
       go("report", { id: report.id });
     } catch (err) {
+      if (!vigente()) return;
       box.replaceChildren(
         h("div", { class: "orb", "aria-hidden": "true" }),
         h("h1", { class: "ask", text: "No se pudo armar el informe" }),
-        h("p", { class: "sub", text: err.bad ? "La evaluación vino con un formato inesperado." : T.api.errorCopy(err) }),
+        h("p", { class: "sub", text: err.bad ? "La evaluación vino en un formato que no se pudo leer. Probá reintentar: la conversación no se perdió." : T.api.errorCopy(err) }),
         h("div", { class: "r-actions", style: "justify-content:center" },
           h("button", { class: "btn", onclick: () => go("evaluating") }, "Reintentar"),
           h("button", { class: "btn-o", onclick: () => go("sims") }, "Volver")));
@@ -415,7 +467,7 @@
   // ------------------------------------------------------------------
   async function openReport(id) {
     try { S.report = await T.api.informes.get(id); go("report", { id }); }
-    catch (_) { toast("No se pudo abrir el informe."); }
+    catch (e) { toast("No se pudo abrir el informe: " + T.api.errorCopy(e)); }
   }
 
   function ring(score) {
@@ -438,7 +490,8 @@
     }
     if (S.profile === "empresa" && r.id) actions.append(h("button", { class: "btn-o btn-danger", onclick: async () => {
       if (!confirm("¿Eliminar este informe?")) return;
-      await T.api.informes.remove(r.id).catch(() => {}); S.informes = await T.api.informes.list().catch(() => S.informes); go("informes");
+      try { await T.api.informes.remove(r.id); } catch (err) { return toast("No se pudo eliminar: " + T.api.errorCopy(err)); }
+      S.informes = await T.api.informes.list().catch(() => S.informes); go("informes"); toast("Informe eliminado.");
     } }, icon("trash"), "Eliminar"));
     col.append(actions);
 
@@ -450,19 +503,23 @@
       ring(r.puntaje)));
     if (ev.resumen) col.append(h("p", { class: "r-summary", text: ev.resumen }));
 
+    const defs = r.criteriosDef || [];
     const list = h("div", { class: "crit-list" });
-    (r.criteriosDef || []).forEach(c => {
-      const x = (ev.criterios || []).find(y => (y.nombre || "").trim().toLowerCase() === c.nombre.trim().toLowerCase()) || {};
-      const p = Number(x.puntaje) || 0;
-      const bars = h("div", { class: "bar5", "aria-label": `${p} de 5` });
-      for (let i = 1; i <= 5; i++) bars.append(h("i", { class: i <= p ? "on" : null }));
-      bars.append(h("b", { text: p ? `${p}/5` : "—" }));
+    let sinPuntuar = 0;
+    defs.forEach((c, i) => {
+      const x = T.core.buscarCriterio({ nombre: c.nombre, total: defs.length }, i, ev.criterios || []) || {};
+      const p = T.core.puntajeCriterio(x.puntaje);
+      if (p == null) sinPuntuar++;
+      const bars = h("div", { class: "bar5", role: "img", "aria-label": p == null ? "sin puntuar" : `${p} de 5` });
+      for (let k = 1; k <= 5; k++) bars.append(h("i", { class: p != null && k <= p ? "on" : null, "aria-hidden": "true" }));
+      bars.append(h("b", { text: p == null ? "—" : `${p}/5`, "aria-hidden": "true" }));
       list.append(h("div", { class: "crit" },
         h("div", { class: "nm" }, c.nombre, h("small", { text: `peso ${c.peso}` })), bars,
         x.comentario ? h("p", { class: "cm", text: x.comentario }) : null,
-        x.evidencia ? h("p", { class: "ev", text: `“${String(x.evidencia).replace(/^["“]|["”]$/g, "")}”` }) : null));
+        h("p", { class: "ev", text: x.evidencia ? `“${String(x.evidencia).replace(/^["“]+|["”]+$/g, "")}”` : "Sin evidencia en la conversación." })));
     });
     col.append(h("div", null, h("div", { class: "eyebrow", text: "Criterios de la empresa", style: "margin-bottom:8px" }), list));
+    if (sinPuntuar) col.append(h("div", { class: "notice", text: `La IA no puntuó ${sinPuntuar} de ${defs.length} criterios: el puntaje se calculó solo con los que sí evaluó. Tomalo con pinzas.` }));
 
     const ul = arr => h("ul", null, (arr || []).map(t => h("li", { text: t })));
     col.append(h("div", { class: "two" },
@@ -602,13 +659,9 @@
     $("input").value = ""; autosize();
     jBusy = true; saveJ(); go("chat");
 
-    const msgs = [];
-    c.turns.forEach(t => {
-      if (t === reply || !t.content) return;
-      const last = msgs[msgs.length - 1];
-      if (last && last.role === t.role) last.content += "\n\n" + t.content; else msgs.push({ role: t.role, content: t.content });
-    });
-    while (msgs.length && msgs[0].role !== "user") msgs.shift();
+    // normalizarHistorial recorta primero y después asegura que arranque en user:
+    // al revés (como estaba antes) el recorte podía dejar un assistant al principio.
+    const msgs = T.core.normalizarHistorial(c.turns.filter(t => t !== reply), 30);
 
     jCtl = new AbortController();
     const cid = c.id;
@@ -616,7 +669,7 @@
       reply.content = await T.api.claude({
         purpose: "chat", maxTokens: 1600, signal: jCtl.signal,
         system: T.prompts.junior(S.cfg, c.action, firstName(JUNIOR.name)),
-        messages: msgs.slice(-30),
+        messages: msgs,
         onText: txt => {
           reply.pending = false; reply.content = txt;
           if (S.view === "chat" && J.current === cid) {
@@ -655,7 +708,7 @@
   function markDirty() { S.dirty = true; const d = document.querySelector(".dirty"); if (d) d.hidden = false; const b = $("saveCfg"); if (b) b.disabled = false; }
   async function saveCfg() {
     try { await T.api.empresa.save(S.cfg); S.dirty = false; render(); toast("Configuración guardada. El agente ya la usa."); }
-    catch (_) { toast("No se pudo guardar. ¿Sigue corriendo el servidor?"); }
+    catch (e) { toast("No se pudo guardar: " + T.api.errorCopy(e)); }
   }
   function cfgHead(title, sub) {
     return h("div", { class: "cfg-head" },
@@ -768,8 +821,14 @@
   // Arranque
   // ------------------------------------------------------------------
   document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => setProfile(b.dataset.profile)));
-  $("menu").addEventListener("click", () => $("side").classList.toggle("open"));
-  window.addEventListener("beforeunload", ev => { if (S.dirty) { ev.preventDefault(); ev.returnValue = ""; } });
+  $("menu").addEventListener("click", () => {
+    const abierto = $("side").classList.toggle("open");
+    $("menu").setAttribute("aria-expanded", String(abierto));
+  });
+  document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("side").classList.contains("open")) cerrarMenu(); });
+  window.addEventListener("beforeunload", ev => {
+    if (S.dirty || S.view === "call") { ev.preventDefault(); ev.returnValue = ""; }
+  });
 
   async function boot() {
     if (!location.protocol.startsWith("http")) {
@@ -777,15 +836,22 @@
         "Esta app se abre desde el servidor: en la carpeta del proyecto ejecutá ", h("b", { text: "npm start" }), " y entrá a ", h("b", { text: "http://localhost:3000" }), "."));
       return;
     }
+    let errorConfig = null;
     try { S.server = await T.api.config(); }
-    catch (_) { S.server = { hasKey: false, models: {}, voice: { provider: "browser" } }; }
+    catch (e) { errorConfig = e; S.server = { hasKey: false, models: {}, voice: { provider: "browser" } }; }
     T.api.setProvider(S.server);
-    try { S.cfg = await T.api.empresa.get(); } catch (_) { S.cfg = clone(T.DEFAULTS); }
+    try { S.cfg = await T.api.empresa.get(); }
+    catch (e) {
+      S.cfg = clone(T.DEFAULTS);
+      if (e && e.status && e.status !== 404) toast("No se pudo leer la configuración guardada: se está usando la de ejemplo.");
+    }
     // Completa campos que falten (por si la configuración guardada es de una versión anterior).
     S.cfg = Object.assign(clone(T.DEFAULTS), S.cfg);
     S.cfg.contexto = Object.assign({}, T.DEFAULTS.contexto, S.cfg.contexto);
+    ["escenarios", "criterios", "archivos"].forEach(k => { if (!Array.isArray(S.cfg[k])) S.cfg[k] = clone(T.DEFAULTS[k]); });
     try { S.informes = await T.api.informes.list(); } catch (_) { S.informes = []; }
     render();
+    if (errorConfig) toast(T.api.errorCopy(errorConfig));
   }
   boot();
 })();

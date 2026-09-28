@@ -3,46 +3,79 @@ window.T = window.T || {};
 
 T.api = (function () {
   async function jsonReq(url, opts = {}) {
-    const res = await fetch(url, { headers: { "content-type": "application/json" }, ...opts });
-    if (!res.ok) { const e = new Error("HTTP " + res.status); e.status = res.status; throw e; }
-    return res.json();
+    let res;
+    try {
+      res = await fetch(url, { headers: { "content-type": "application/json" }, ...opts });
+    } catch (e) {
+      const err = new Error("No se pudo conectar con el servidor. ¿Sigue corriendo npm start?");
+      err.offline = true; throw err;
+    }
+    let cuerpo = null;
+    try { cuerpo = await res.json(); } catch (_) {}
+    if (!res.ok) {
+      const msg = (cuerpo && cuerpo.error && cuerpo.error.message) || "HTTP " + res.status;
+      const e = new Error(msg);
+      e.status = res.status;
+      e.type = (cuerpo && cuerpo.error && cuerpo.error.type) || "";
+      throw e;
+    }
+    return cuerpo;
   }
 
-  // Llama al modelo de IA (Gemini o Claude, según el .env) con streaming. purpose: "chat" | "voice" | "eval" (el servidor elige el modelo).
+  // Llama al modelo de IA (Gemini o Claude, según el .env) con streaming.
+  // purpose: "chat" | "voice" | "eval" (el servidor elige el modelo).
   async function claude({ purpose = "chat", system, messages, maxTokens = 1024, onText, signal }) {
-    const res = await fetch("/api/messages", {
-      method: "POST",
-      signal,
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ purpose, system, messages, max_tokens: maxTokens, stream: true })
-    });
+    const historial = T.core.normalizarHistorial(messages, 40);
+    if (!historial.length) throw Object.assign(new Error("No hay nada para enviar."), { status: 400 });
+
+    let res;
+    try {
+      res = await fetch("/api/messages", {
+        method: "POST",
+        signal,
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ purpose, system, messages: historial, max_tokens: maxTokens, stream: true })
+      });
+    } catch (e) {
+      if (e && e.name === "AbortError") throw e;
+      throw Object.assign(new Error("No se pudo conectar con el servidor. ¿Sigue corriendo npm start?"), { offline: true });
+    }
+
     if (!res.ok) {
       let msg = "", type = "";
-      try { const j = await res.json(); msg = j.error && j.error.message || ""; type = j.error && j.error.type || ""; } catch (_) {}
-      const err = new Error(msg || res.statusText); err.status = res.status; err.type = type; throw err;
+      try { const j = await res.json(); msg = (j.error && j.error.message) || ""; type = (j.error && j.error.type) || ""; } catch (_) {}
+      const err = new Error(msg || res.statusText || "Error de la API");
+      err.status = res.status; err.type = type; throw err;
     }
+    if (!res.body) throw Object.assign(new Error("El servidor no devolvió contenido."), { status: 502 });
+
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "", text = "";
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
-      const events = buffer.split("\n\n");
-      buffer = events.pop();
-      for (const ev of events) {
-        const line = ev.split("\n").find(l => l.startsWith("data:"));
-        if (!line) continue;
-        let data; try { data = JSON.parse(line.slice(5).trim()); } catch (_) { continue; }
-        if (data.type === "content_block_delta" && data.delta && data.delta.type === "text_delta") {
-          text += data.delta.text;
-          if (onText) onText(text, data.delta.text);
-        } else if (data.type === "error") {
-          const err = new Error(data.error && data.error.message || "Error de la API");
-          err.status = data.error && data.error.type === "overloaded_error" ? 529 : 500;
-          err.partial = text; throw err;
+    try {
+      while (true) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+        const eventos = buffer.split("\n\n");
+        buffer = eventos.pop();
+        for (const ev of eventos) {
+          // Un evento SSE puede traer varias líneas "data:": se concatenan.
+          const datos = ev.split("\n").filter(l => l.startsWith("data:")).map(l => l.slice(5).trim()).join("");
+          if (!datos || datos === "[DONE]") continue;
+          let data; try { data = JSON.parse(datos); } catch (_) { continue; }
+          if (data.type === "content_block_delta" && data.delta && data.delta.type === "text_delta") {
+            text += data.delta.text;
+            if (onText) onText(text, data.delta.text);
+          } else if (data.type === "error") {
+            const err = new Error((data.error && data.error.message) || "Error de la API");
+            err.status = data.error && data.error.type === "overloaded_error" ? 529 : 500;
+            err.partial = text; throw err;
+          }
         }
       }
+    } finally {
+      try { reader.cancel(); } catch (_) {}
     }
     return text;
   }
@@ -50,16 +83,22 @@ T.api = (function () {
   let keyVar = "la API key", aiName = "La IA";
   function setProvider(cfg) { if (cfg && cfg.keyVar) keyVar = cfg.keyVar; if (cfg && cfg.providerName) aiName = cfg.providerName; }
 
+  // Un mensaje que el usuario pueda entender (y accionar) para cada tipo de error.
   function errorCopy(e) {
-    if (e && e.name === "AbortError") return "";
-    if (e && e.type === "missing_key") return `Falta la API key: pegala en el archivo .env (${keyVar}) y reiniciá el servidor.`;
-    if (e && e.status === 401) return `La API key no es válida. Revisá ${keyVar} en el .env y reiniciá el servidor.`;
-    if (e && e.status === 403) return "La API key no tiene permiso para usar este modelo.";
-    if (e && e.status === 404) return "El modelo configurado en el .env no está disponible para tu key. Probá con otro modelo.";
-    if (e && e.status === 429) return "Se alcanzó el límite de consultas del plan. Esperá un minuto y probá de nuevo.";
-    if (e && (e.status === 529 || e.status === 503)) return `${aiName} está saturado en este momento. Probá de nuevo en unos segundos.`;
-    if (e && e.status === 400) return "La API rechazó el pedido: " + e.message;
+    if (!e) return "Algo falló. Probá de nuevo.";
+    if (e.name === "AbortError") return "";
+    if (e.offline) return "No se pudo conectar con el servidor. ¿Sigue corriendo npm start?";
+    if (e.type === "missing_key") return `Falta la API key: pegala en el archivo .env (${keyVar}) y reiniciá el servidor.`;
+    if (e.status === 401) return e.message || `La API key no es válida. Revisá ${keyVar} en el .env y reiniciá el servidor.`;
+    if (e.status === 403) return e.message || "La API key no tiene permiso para usar este modelo.";
+    if (e.status === 404) return e.message || "El modelo configurado en el .env no está disponible para tu key. Probá con otro modelo.";
+    if (e.status === 413) return e.message || "El contenido es demasiado grande. Quitá algún archivo del contexto.";
+    if (e.status === 429) return e.message || "Se alcanzó el límite de consultas del plan. Esperá un minuto y probá de nuevo.";
+    if (e.status === 529 || e.status === 503) return `${aiName} está saturado en este momento. Probá de nuevo en unos segundos.`;
+    if (e.status === 502) return e.message || `No se pudo hablar con ${aiName}. Revisá tu conexión a internet.`;
+    if (e.status === 400) return "La API rechazó el pedido: " + (e.message || "sin detalle");
     if (e instanceof TypeError) return "No se pudo conectar con el servidor. ¿Sigue corriendo npm start?";
+    if (e.message) return e.message;
     return "Se cortó la respuesta. Probá de nuevo.";
   }
 

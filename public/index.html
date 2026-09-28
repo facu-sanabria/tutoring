@@ -11,7 +11,7 @@
 </head>
 <body>
 <div class="shell">
-  <aside class="side" id="side">
+  <aside class="side" id="side" aria-label="Navegación">
     <div class="logo"><span class="mark"><svg viewBox="0 0 16 16"><path d="M3 11.5 8 4l5 7.5" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Tutoring</div>
     <div class="seg" role="group" aria-label="Perfil">
       <button data-profile="estudiante" aria-pressed="true">Estudiante</button>
@@ -22,20 +22,20 @@
     <div class="me"><div class="av" id="meAv"></div><div><b id="meName"></b><span id="meRole"></span></div></div>
   </aside>
 
-  <section class="main">
+  <section class="main" role="main">
     <header class="top">
       <div class="top-l">
-        <button class="menu" id="menu" aria-label="Menú"><svg viewBox="0 0 20 20"><path d="M3 6h14M3 10h14M3 14h14"/></svg></button>
+        <button class="menu" id="menu" aria-label="Menú" aria-expanded="false" aria-controls="side"><svg viewBox="0 0 20 20"><path d="M3 6h14M3 10h14M3 14h14"/></svg></button>
         <div class="pill"><span class="dot"></span><span id="viewLabel"></span></div>
       </div>
-      <div class="status" id="status"></div>
+      <div class="status" id="status" role="status"></div>
     </header>
     <div class="body" id="body"><div id="view"></div></div>
     <div class="foot" id="foot" hidden>
       <div class="col">
         <div class="composer">
           <label for="input" style="position:absolute;left:-9999px">Mensaje</label>
-          <textarea id="input" rows="1"></textarea>
+          <textarea id="input" rows="1" aria-describedby="ctxLine"></textarea>
           <div class="c-row">
             <div class="chips">
               <button class="chip" id="pasteCode"><svg viewBox="0 0 16 16"><path d="M5.5 4 2 8l3.5 4M10.5 4 14 8l-3.5 4"/></svg>Pegar código</button>
@@ -48,8 +48,9 @@
     </div>
   </section>
 </div>
-<div class="toast" id="toast" hidden></div>
+<div class="toast" id="toast" role="status" aria-live="polite" hidden></div>
 
+<script src="js/core.js"></script>
 <script src="js/defaults.js"></script>
 <script src="js/api.js"></script>
 <script src="js/prompts.js"></script>
