@@ -58,9 +58,12 @@ const VOICE = {
   vapiPublicKey: process.env.VAPI_PUBLIC_KEY || "",
   vapiAssistantId: process.env.VAPI_ASSISTANT_ID || ""
 };
-const PORT = Number(process.env.PORT) || 3000;
+const PORT_ENV = String(process.env.PORT || "").trim();
+// PORT=0 le pide al sistema un puerto libre (lo usan las pruebas).
+const PORT = /^[0-9]+$/.test(PORT_ENV) ? Number(PORT_ENV) : 3000;
 const PUBLIC = path.resolve(__dirname, "public");
-const DATA = path.resolve(__dirname, "data");
+// DATA_DIR se usa en las pruebas para no pisar los datos reales. Normalmente no hace falta tocarlo.
+const DATA = path.resolve(__dirname, process.env.DATA_DIR || "data");
 const REPORTS = path.join(DATA, "informes");
 fs.mkdirSync(REPORTS, { recursive: true });
 
@@ -444,7 +447,7 @@ server.on("error", e => {
 });
 
 server.listen(PORT, "127.0.0.1", () => {
-  console.log(`\n  Tutoring corriendo en  http://localhost:${PORT}\n`);
+  console.log(`\n  Tutoring corriendo en  http://localhost:${server.address().port}\n`);
   console.log(`  IA: ${AI.name} (LLM_PROVIDER=${PROVIDER})`);
   if (!API_KEY) console.log(`  Atención: falta ${AI.keyVar} en el archivo .env`);
   console.log(`  Modelos: chat=${MODELS.chat} · voz=${MODELS.voice} · evaluación=${MODELS.eval}`);

@@ -4,6 +4,11 @@
   "private": true,
   "description": "Simulaciones por voz para evaluar habilidades blandas y mentor de IA para juniors, con el contexto que carga el senior",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
-  "engines": { "node": ">=18" }
+  "scripts": {
+    "start": "node server.js",
+    "test": "node --test test/"
+  },
+  "engines": {
+    "node": ">=18"
+  }
 }
