@@ -81,7 +81,8 @@ T.voice = (function () {
     let rec = null, recActive = false, recArrancando = false, recErroresRed = 0;
     let finalBuf = "", ultimoInterim = "", silenceTimer = null, sinVozTimer = null, recVigia = null;
     let ctl = null, streamDone = true, assistantText = "", spokenUpTo = 0;
-    let queue = [], speaking = false, actual = null, watchdog = null, seq = 0;
+    let queue = [], speaking = false, actual = null, watchdog = null, arranqueTimer = null, seq = 0;
+    let ttsAnda = false, avisoTTS = false;   // ttsAnda: la síntesis de voz realmente suena
     let media = null, audioCtx = null, raf = 0;
 
     Object.defineProperty(this, "state", { get: () => state });
@@ -314,6 +315,7 @@ T.voice = (function () {
     }
     function speakNext() {
       clearTimeout(watchdog); watchdog = null;
+      clearTimeout(arranqueTimer); arranqueTimer = null;
       if (ended) { speaking = false; return; }
       const text = queue.shift();
       if (!text) { speaking = false; actual = null; afterSpeech(); return; }
@@ -321,31 +323,48 @@ T.voice = (function () {
       setState("speaking");
       const id = ++seq;
       actual = id;
-      const seguir = () => { if (actual === id) { actual = null; speakNext(); } };
+      const seguir = () => {
+        if (actual !== id) return;
+        clearTimeout(watchdog); watchdog = null;
+        clearTimeout(arranqueTimer); arranqueTimer = null;
+        actual = null; speakNext();
+      };
       let u;
       try {
         u = new SpeechSynthesisUtterance(text);
         const v = pickVoice();
         if (v) { u.voice = v; u.lang = v.lang; } else u.lang = "es-AR";
         u.rate = opts.rate || 1.05; u.pitch = 1;
+        u.onstart = () => { ttsAnda = true; };
         u.onend = seguir;
         u.onerror = seguir;
         if (speechSynthesis.paused) speechSynthesis.resume();
         speechSynthesis.speak(u);
       } catch (_) {
         // Si la síntesis no arranca, seguimos la conversación igual.
-        return seguir();
+        ttsRoto(); return seguir();
       }
+      // Si en 1,2 s no empezó a hablar, la síntesis de este navegador no funciona
+      // (sin voces, audio silenciado, permisos). No vale esperar el tiempo completo
+      // de la frase: seguimos la conversación con los subtítulos.
+      if (!ttsAnda) arranqueTimer = setTimeout(() => { if (actual === id && !ttsAnda) { ttsRoto(); seguir(); } }, 1200);
       // Red de seguridad: hay navegadores que no disparan onend (y Chrome se cuelga
       // si la pestaña pierde el foco). Avanzamos igual pasado el tiempo estimado.
       watchdog = setTimeout(() => {
         if (actual !== id) return;
         try { speechSynthesis.cancel(); } catch (_) {}
         seguir();
-      }, 3000 + text.length * 95);
+      }, 1500 + text.length * 80);
+    }
+    function ttsRoto() {
+      try { speechSynthesis.cancel(); } catch (_) {}
+      if (avisoTTS) return;
+      avisoTTS = true;
+      aviso("Este navegador no está leyendo en voz alta (revisá el volumen o instalá una voz en español). Igual podés seguir la llamada leyendo lo que dice el cliente.");
     }
     function pararVoz() {
       clearTimeout(watchdog); watchdog = null;
+      clearTimeout(arranqueTimer); arranqueTimer = null;
       queue = []; speaking = false; actual = null;
       if (TTS) { try { speechSynthesis.cancel(); } catch (_) {} }
     }
@@ -417,6 +436,7 @@ T.voice = (function () {
       ended = true;
       if (ctl) ctl.abort();
       clearInterval(recVigia); recVigia = null;
+      clearTimeout(silenceTimer); clearTimeout(sinVozTimer);
       pararVoz();
       stopRec(); stopLevel();
       // Si cortó mientras el cliente hablaba, guardamos lo que alcanzó a decir.
