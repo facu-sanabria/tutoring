@@ -11,6 +11,7 @@ const os = require("os");
 const path = require("path");
 const crypto = require("crypto");
 const { pathToFileURL } = require("url");
+const core = require("./public/js/core.js");   // misma lógica que el navegador (migración de la configuración)
 
 // ---------- .env ----------
 const envPath = path.join(__dirname, ".env");
@@ -788,8 +789,19 @@ async function handleApi(req, res, url) {
   if (url.pathname === "/api/empresa") {
     const file = path.join(DATA, "empresa.json");
     if (req.method === "GET") {
-      const data = readJSON(file, null);
-      return data ? json(res, 200, data) : fail(res, 404, "Sin configuración guardada");
+      let data = readJSON(file, null);
+      if (!data) return fail(res, 404, "Sin configuración guardada");
+      // Formato viejo (secciones fijas): lo convertimos y guardamos, dejando una copia del original.
+      if (core.esFormatoViejo(data)) {
+        try {
+          const respaldo = path.join(DATA, "empresa.formato-viejo.json");
+          if (!fs.existsSync(respaldo)) writeJSON(respaldo, data);
+          data = core.migrarConfig(data);
+          writeJSON(file, data);
+          console.log("  Configuración de la empresa convertida al formato nuevo (copia del original en data/empresa.formato-viejo.json).");
+        } catch (e) { data = core.migrarConfig(data); }
+      }
+      return json(res, 200, data);
     }
     if (req.method === "PUT") {
       const cfg = await bodyObject(req, res, LIMITS.empresa, "Subí documentos más chicos.");

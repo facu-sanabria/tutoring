@@ -160,7 +160,98 @@
     return esp > 30 ? esp + 1 : corte;
   }
 
-  const api = { normalizarHistorial, extraerJSON, parseEvaluacion, puntajeCriterio, puntajePonderado, buscarCriterio, clave, textoHablable, largoDecible };
+  // ---------------------------------------------------------------- configuración de la empresa
+  // Contextos generales: siempre presentes (se pueden dejar vacíos, no borrar).
+  const GENERALES = [
+    { clave: "proposito", titulo: "Propósito del negocio", ayuda: "Qué hace la empresa, para quién y para qué existe." },
+    { clave: "oferta", titulo: "Productos o servicios y clientes", ayuda: "Qué vendés u ofrecés, quiénes son tus clientes y qué valoran." },
+    { clave: "trabajo", titulo: "Cómo trabajamos", ayuda: "Procesos, roles, horarios, herramientas y metodología." },
+    { clave: "problemas", titulo: "Cómo encaramos un problema", ayuda: "El orden de pasos que esperás cuando algo sale mal." },
+    { clave: "clientes", titulo: "Trato con clientes", ayuda: "Cómo se le habla a un cliente y qué no se hace nunca." },
+    { clave: "calidad", titulo: "Criterios de calidad", ayuda: "Qué se revisa antes de dar algo por terminado." },
+    { clave: "restricciones", titulo: "Restricciones", ayuda: "Lo que no se hace sin la persona responsable." }
+  ];
+  const ACCIONES_JUNIOR = ["entender", "trabajo", "tarea", "revisar"];
+  // Del formato viejo (secciones fijas pensadas para software) al nuevo.
+  const MAPA_VIEJO = { proposito: "proposito", producto: "oferta", metodologia: "trabajo", problemas: "problemas", clientes: "clientes", revision: "calidad", restricciones: "restricciones" };
+  const TITULOS_VIEJOS = { arquitectura: "Arquitectura y módulos" };
+
+  const str = v => (v == null ? "" : String(v));
+  let secuencia = 0;
+  const nuevoId = pref => `${pref}-${Date.now().toString(36)}${(secuencia++).toString(36)}${Math.random().toString(36).slice(2, 5)}`;
+
+  const esFormatoViejo = cfg => Boolean(cfg) && typeof cfg === "object" && !Array.isArray(cfg.contextos) && cfg.contexto && typeof cfg.contexto === "object";
+
+  // Convierte el formato viejo ({ contexto: {proposito, producto, ...}, archivos, senior }) al nuevo, sin perder nada.
+  function migrarConfig(cfg) {
+    if (!cfg || typeof cfg !== "object") return null;
+    if (!esFormatoViejo(cfg)) return normalizarConfig(cfg);
+    const viejo = cfg.contexto || {};
+    const contextos = GENERALES.map(g => {
+      const claveVieja = Object.keys(MAPA_VIEJO).find(k => MAPA_VIEJO[k] === g.clave);
+      return { id: "g-" + g.clave, clave: g.clave, titulo: g.titulo, contenido: str(viejo[claveVieja]).trim(), general: true };
+    });
+    Object.keys(viejo).forEach(k => {
+      if (MAPA_VIEJO[k] || !str(viejo[k]).trim()) return;
+      contextos.push({ id: "p-" + k.replace(/[^a-z0-9]+/gi, "-").toLowerCase(), titulo: TITULOS_VIEJOS[k] || k, contenido: str(viejo[k]).trim(), general: false });
+    });
+    const nuevo = Object.assign({}, cfg, {
+      version: 2,
+      rubro: cfg.rubro || "Software",
+      responsable: { nombre: str(cfg.senior).trim(), rol: "Líder técnico" },
+      contextos,
+      documentos: Array.isArray(cfg.archivos) ? cfg.archivos : []
+    });
+    delete nuevo.contexto; delete nuevo.archivos; delete nuevo.senior;
+    return normalizarConfig(nuevo);
+  }
+
+  // Deja la configuración completa y ordenada: generales primero (todos, en su orden) y después los particulares.
+  function normalizarConfig(cfg) {
+    const c = Object.assign({}, cfg);
+    c.version = 2;
+    c.empresa = str(c.empresa);
+    c.rubro = str(c.rubro);
+    const r = c.responsable && typeof c.responsable === "object" ? c.responsable : { nombre: str(c.senior), rol: "" };
+    c.responsable = { nombre: str(r.nombre), rol: str(r.rol) };
+    delete c.senior;
+    const lista = (Array.isArray(c.contextos) ? c.contextos : []).filter(x => x && typeof x === "object");
+    const generales = GENERALES.map(g => {
+      const x = lista.find(y => y.general && y.clave === g.clave) || {};
+      return { id: str(x.id) || "g-" + g.clave, clave: g.clave, titulo: str(x.titulo).trim() || g.titulo, contenido: str(x.contenido), general: true };
+    });
+    const particulares = lista.filter(y => !(y.general && GENERALES.some(g => g.clave === y.clave)))
+      .map(y => ({ id: str(y.id) || nuevoId("p"), titulo: str(y.titulo), contenido: str(y.contenido), general: false }));
+    c.contextos = generales.concat(particulares);
+    const docs = Array.isArray(c.documentos) ? c.documentos : Array.isArray(c.archivos) ? c.archivos : [];
+    c.documentos = docs.filter(d => d && d.nombre).map(d => ({ nombre: str(d.nombre), contenido: str(d.contenido) }));
+    delete c.archivos; delete c.contexto;
+    const te = c.tareaEjemplo;
+    const obj = te && typeof te === "object" ? te : { tarea: str(te) };
+    c.tareaEjemplo = {};
+    ACCIONES_JUNIOR.forEach(k => { c.tareaEjemplo[k] = str(obj[k]); });
+    c.escenarios = Array.isArray(c.escenarios) ? c.escenarios : [];
+    c.criterios = Array.isArray(c.criterios) ? c.criterios : [];
+    c.notasEvaluacion = str(c.notasEvaluacion);
+    return c;
+  }
+
+  // Texto de un contexto general por su clave ("" si está vacío).
+  const contextoDe = (cfg, clave) => {
+    const x = ((cfg && cfg.contextos) || []).find(c => c.general && c.clave === clave);
+    return x ? str(x.contenido).trim() : "";
+  };
+  // "Martín Sosa (líder técnico)" o solo el nombre si no hay rol.
+  function responsableTexto(cfg) {
+    const r = (cfg && cfg.responsable) || {};
+    const nombre = str(r.nombre).trim() || str(cfg && cfg.senior).trim() || "la persona responsable";
+    const rol = str(r.rol).trim();
+    return rol ? `${nombre} (${rol.charAt(0).toLowerCase() + rol.slice(1)})` : nombre;
+  }
+  const esSoftware = cfg => /software|sistemas|tecnolog|desarrollo|programaci|inform[aá]tica|\bit\b|saas/i.test(str(cfg && cfg.rubro));
+
+  const api = { normalizarHistorial, extraerJSON, parseEvaluacion, puntajeCriterio, puntajePonderado, buscarCriterio, clave, textoHablable, largoDecible,
+    GENERALES, ACCIONES_JUNIOR, esFormatoViejo, migrarConfig, normalizarConfig, contextoDe, responsableTexto, esSoftware, nuevoId };
 
   if (typeof module === "object" && module.exports) module.exports = api;
   else { raiz.T = raiz.T || {}; raiz.T.core = api; }
