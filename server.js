@@ -98,10 +98,22 @@ const T_SILENCIO_STREAM = 60000;                          // si deja de mandar t
 const MAX_REINTENTOS = 2;
 const REINTENTABLES = new Set([429, 500, 502, 503, 529]);
 
+// Voz: "vapi" (por defecto) o "browser" (voz del navegador).
+// La PUBLIC key de Vapi puede llegar al navegador (así está diseñada). La private key, nunca: no se lee.
 const VOICE = {
-  provider: env("VOICE_PROVIDER").toLowerCase() === "vapi" ? "vapi" : "browser",
+  provider: env("VOICE_PROVIDER").toLowerCase() === "browser" ? "browser" : "vapi",
   vapiPublicKey: env("VAPI_PUBLIC_KEY"),
-  vapiAssistantId: env("VAPI_ASSISTANT_ID")
+  vapiAssistantId: env("VAPI_ASSISTANT_ID"),
+  vapi: {
+    modelProvider: env("VAPI_MODEL_PROVIDER") || "anthropic",
+    model: env("VAPI_MODEL") || "claude-haiku-4-5-20251001",
+    voiceProvider: env("VAPI_VOICE_PROVIDER") || "azure",
+    voiceFemenina: env("VAPI_VOICE_FEMENINA") || "es-AR-ElenaNeural",
+    voiceMasculina: env("VAPI_VOICE_MASCULINA") || "es-AR-TomasNeural",
+    transcriber: env("VAPI_TRANSCRIBER") || "deepgram",
+    transcriberModel: env("VAPI_TRANSCRIBER_MODEL") || "nova-3",
+    language: env("VAPI_LANGUAGE") || "es"
+  }
 };
 const PORT_ENV = env("PORT");
 // PORT=0 le pide al sistema un puerto libre (lo usan las pruebas).
@@ -917,7 +929,11 @@ server.listen(PORT, "127.0.0.1", () => {
   for (const id of CADENA) {
     if (id !== "claude-sdk" && !PROVIDERS[id].key) console.log(`  Atención: falta ${PROVIDERS[id].keyVar} en el archivo .env`);
   }
-  console.log(`  Voz: ${VOICE.provider}${VOICE.provider === "vapi" && !VOICE.vapiPublicKey ? "  (atención: falta VAPI_PUBLIC_KEY en el .env)" : ""}\n`);
+  if (VOICE.provider === "vapi" && !VOICE.vapiPublicKey) {
+    console.log("  Voz: vapi · ATENCIÓN: falta VAPI_PUBLIC_KEY en el .env. Mientras tanto se usa la voz del navegador.\n");
+  } else if (VOICE.provider === "vapi") {
+    console.log(`  Voz: vapi · modelo ${VOICE.vapi.modelProvider}/${VOICE.vapi.model} · voces ${VOICE.vapi.voiceFemenina} / ${VOICE.vapi.voiceMasculina} · ${VOICE.vapi.transcriber} ${VOICE.vapi.transcriberModel} (${VOICE.vapi.language})\n`);
+  } else console.log("  Voz: navegador\n");
   if (CADENA.includes("claude-sdk")) {
     verificarSesionClaude().then(s => {
       if (s.estado === "ok") console.log(`  Claude: sesión iniciada${s.plan ? " (" + s.plan + ")" : ""}. No se usa ninguna API key.\n`);
