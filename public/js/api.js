@@ -22,9 +22,10 @@ T.api = (function () {
     return cuerpo;
   }
 
-  // Llama al modelo de IA (Gemini o Claude, según el .env) con streaming.
+  // Llama al modelo de IA (el proveedor lo elige el servidor según el .env) con streaming.
   // purpose: "chat" | "voice" | "eval" (el servidor elige el modelo).
-  async function claude({ purpose = "chat", system, messages, maxTokens = 1024, onText, signal }) {
+  // onStatus(texto): avisos mientras espera, por ejemplo "Reintentando…".
+  async function claude({ purpose = "chat", system, messages, maxTokens = 1024, onText, onStatus, signal }) {
     const historial = T.core.normalizarHistorial(messages, 40);
     if (!historial.length) throw Object.assign(new Error("No hay nada para enviar."), { status: 400 });
 
@@ -67,9 +68,17 @@ T.api = (function () {
           if (data.type === "content_block_delta" && data.delta && data.delta.type === "text_delta") {
             text += data.delta.text;
             if (onText) onText(text, data.delta.text);
+          } else if (data.type === "retry") {
+            if (onStatus) onStatus(data.message || "Reintentando…");
+          } else if (data.type === "provider") {
+            // El servidor pasó al proveedor de respaldo: lo mostramos en la barra superior.
+            if (onStatus) onStatus(`Usando el respaldo: ${data.name}…`);
+            if (onProviderChange) onProviderChange(data);
           } else if (data.type === "error") {
-            const err = new Error((data.error && data.error.message) || "Error de la API");
-            err.status = data.error && data.error.type === "overloaded_error" ? 529 : 500;
+            const e = data.error || {};
+            const err = new Error(e.message || "Error de la API");
+            err.status = Number(e.status) || (e.type === "overloaded_error" ? 529 : 500);
+            err.type = e.type || "";
             err.partial = text; throw err;
           }
         }
@@ -80,7 +89,7 @@ T.api = (function () {
     return text;
   }
 
-  let keyVar = "la API key", aiName = "La IA";
+  let keyVar = "la API key", aiName = "La IA", onProviderChange = null;
   function setProvider(cfg) { if (cfg && cfg.keyVar) keyVar = cfg.keyVar; if (cfg && cfg.providerName) aiName = cfg.providerName; }
 
   // Un mensaje que el usuario pueda entender (y accionar) para cada tipo de error.
@@ -88,13 +97,16 @@ T.api = (function () {
     if (!e) return "Algo falló. Probá de nuevo.";
     if (e.name === "AbortError") return "";
     if (e.offline) return "No se pudo conectar con el servidor. ¿Sigue corriendo npm start?";
-    if (e.type === "missing_key") return `Falta la API key: pegala en el archivo .env (${keyVar}) y reiniciá el servidor.`;
+    if (e.type === "missing_key") return e.message || `Falta la API key: pegala en el archivo .env (${keyVar}) y reiniciá el servidor.`;
+    if (e.type === "sesion") return e.message;
+    if (e.type === "limite_plan") return e.message;
+    if (e.type === "timeout") return e.message + " Probá de nuevo.";
     if (e.status === 401) return e.message || `La API key no es válida. Revisá ${keyVar} en el .env y reiniciá el servidor.`;
     if (e.status === 403) return e.message || "La API key no tiene permiso para usar este modelo.";
     if (e.status === 404) return e.message || "El modelo configurado en el .env no está disponible para tu key. Probá con otro modelo.";
     if (e.status === 413) return e.message || "El contenido es demasiado grande. Quitá algún archivo del contexto.";
     if (e.status === 429) return e.message || "Se alcanzó el límite de consultas del plan. Esperá un minuto y probá de nuevo.";
-    if (e.status === 529 || e.status === 503) return `${aiName} está saturado en este momento. Probá de nuevo en unos segundos.`;
+    if (e.status === 529 || e.status === 503) return e.message && !/^Error de la API$/.test(e.message) ? e.message + " Probá de nuevo en unos segundos." : `${aiName} está saturado en este momento. Probá de nuevo en unos segundos.`;
     if (e.status === 502) return e.message || `No se pudo hablar con ${aiName}. Revisá tu conexión a internet.`;
     if (e.status === 400) return "La API rechazó el pedido: " + (e.message || "sin detalle");
     if (e instanceof TypeError) return "No se pudo conectar con el servidor. ¿Sigue corriendo npm start?";
@@ -106,7 +118,9 @@ T.api = (function () {
     claude,
     errorCopy,
     setProvider,
+    onProvider: fn => { onProviderChange = fn; },
     config: () => jsonReq("/api/config"),
+    diagnostico: () => jsonReq("/api/diagnostico"),
     empresa: {
       get: () => jsonReq("/api/empresa"),
       save: data => jsonReq("/api/empresa", { method: "PUT", body: JSON.stringify(data) })

@@ -329,3 +329,5 @@ details.tx .transcript{border:0;margin-top:8px;padding-top:0;max-width:none}
   .crit,.box{break-inside:avoid}
   details.tx{display:none}
 }
+.status{cursor:pointer}
+.status.warn{color:var(--amber)} .status.warn i{background:var(--amber)}

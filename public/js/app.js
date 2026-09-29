@@ -41,7 +41,7 @@
   const fmtDate = iso => { try { return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (_) { return iso; } };
   const fmtDur = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   let toastT;
-  function toast(msg) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), 2600); }
+  function toast(msg, ms) { const t = $("toast"); t.textContent = msg; t.hidden = false; clearTimeout(toastT); toastT = setTimeout(() => (t.hidden = true), ms || 2600); }
 
   const ICON = {
     sims: '<path d="M10 2.5a3 3 0 0 0-3 3v4a3 3 0 0 0 6 0v-4a3 3 0 0 0-3-3z"/><path d="M4.5 9.5a5.5 5.5 0 0 0 11 0M10 15v2.5"/>',
@@ -137,13 +137,39 @@
     if (fn) fn(view);
   }
 
+  // Indicador de la barra superior: qué proveedor de IA está respondiendo.
   function renderTop() {
     $("viewLabel").textContent = VIEW_LABEL[S.view] || "";
     const st = $("status"); st.replaceChildren();
     if (!S.server) return;
+    const ia = S.server.ia || {};
     const ok = S.server.hasKey;
-    st.className = "status" + (ok ? "" : " bad");
-    st.append(h("i"), ok ? `IA conectada · ${S.server.providerName || "IA"}` : `Falta ${S.server.keyVar || "la API key"} en .env`);
+    const respaldoEnUso = ok && (S.usandoRespaldo || (ia.principal && !ia.principal.listo));
+    st.className = "status" + (ok ? (respaldoEnUso ? " warn" : "") : " bad");
+    let texto;
+    if (!ok) texto = S.server.problema || `Falta ${S.server.keyVar || "la API key"} en .env`;
+    else if (respaldoEnUso) texto = `IA de respaldo · ${S.server.providerName || "IA"}`;
+    else texto = `IA conectada · ${S.server.providerName || "IA"}` + (ia.respaldo ? ` · respaldo ${ia.respaldo.nombre}` : "");
+    st.title = "Tocá para probar la conexión con la IA";
+    st.append(h("i"), texto);
+  }
+
+  // Diagnóstico: prueba de verdad el proveedor principal y el de respaldo.
+  let diagnosticando = false;
+  async function diagnosticar() {
+    if (diagnosticando) return;
+    diagnosticando = true;
+    toast("Probando la conexión con la IA…");
+    try {
+      const d = await T.api.diagnostico();
+      const linea = p => p ? `${p.nombre}: ${p.ok ? `OK (${(p.latenciaMs / 1000).toFixed(1)} s)` : p.error}` : "";
+      toast([linea(d.principal), d.respaldo ? "Respaldo · " + linea(d.respaldo) : ""].filter(Boolean).join("  ·  "), 7000);
+      S.server = await T.api.config().catch(() => S.server);
+      S.usandoRespaldo = Boolean(d.activo && d.principal && d.activo !== d.principal.id);
+      T.api.setProvider(S.server);
+      renderTop();
+    } catch (e) { toast("No se pudo hacer el diagnóstico: " + T.api.errorCopy(e)); }
+    finally { diagnosticando = false; }
   }
 
   function navBtn(view, label, ic) {
@@ -239,7 +265,7 @@
       h("li", { text: "Si el cliente está hablando, tocá la esfera para interrumpirlo." }),
       h("li", { text: "La llamada termina cuando se despiden o cuando tocás Colgar." })));
 
-    if (!S.server.hasKey) col.append(h("div", { class: "notice red", text: `Falta la API key: pegala en el archivo .env (${S.server.keyVar || "API key"}) y reiniciá el servidor.` }));
+    if (!S.server.hasKey) col.append(h("div", { class: "notice red", text: S.server.problema || `Falta la API key: pegala en el archivo .env (${S.server.keyVar || "API key"}) y reiniciá el servidor.` }));
     if (!S.cfg.criterios.length) col.append(h("div", { class: "notice red", text: "No hay criterios de evaluación cargados: la simulación va a funcionar, pero no se puede armar el informe. Cargalos en Empresa → Criterios." }));
     if (S.server.voice.provider !== "vapi" && !sup.stt) col.append(h("div", { class: "notice", text: "Este navegador no reconoce voz: vas a poder escribir tus respuestas. Para hablar, usá Chrome o Edge." }));
     if (S.server.voice.provider !== "vapi" && !sup.tts) col.append(h("div", { class: "notice", text: "Este navegador no puede leer en voz alta: vas a ver lo que dice el cliente como texto." }));
@@ -427,6 +453,7 @@
     try {
       const text = await T.api.claude({
         purpose: "eval", maxTokens: 2500,
+        onStatus: msg => { if (vigente()) { const st = box.querySelector(".sub"); if (st) st.textContent = msg; } },
         system: "Sos un evaluador riguroso y justo. Respondés solo con un objeto JSON válido, sin texto alrededor.",
         messages: [{ role: "user", content: T.prompts.evaluacion(cfg, e, call.turns, S.candidato, Math.max(1, Math.round(call.seconds / 60))) }]
       });
@@ -671,6 +698,12 @@
         purpose: "chat", maxTokens: 1600, signal: jCtl.signal,
         system: T.prompts.junior(S.cfg, c.action, firstName(JUNIOR.name)),
         messages: msgs,
+        onStatus: msg => {
+          if (!reply.pending || S.view !== "chat" || J.current !== cid) return;
+          const th = $("thread"); const last = th && th.lastElementChild;
+          const p = last && last.querySelector(".thinking");
+          if (p) p.textContent = msg;
+        },
         onText: txt => {
           reply.pending = false; reply.content = txt;
           if (S.view === "chat" && J.current === cid) {
@@ -822,6 +855,8 @@
   // Arranque
   // ------------------------------------------------------------------
   document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => setProfile(b.dataset.profile)));
+  $("status").addEventListener("click", diagnosticar);
+  T.api.onProvider(data => { S.usandoRespaldo = true; if (S.server) { S.server.providerName = data.name; renderTop(); } });
   $("menu").addEventListener("click", () => {
     const abierto = $("side").classList.toggle("open");
     $("menu").setAttribute("aria-expanded", String(abierto));
@@ -839,7 +874,7 @@
     }
     let errorConfig = null;
     try { S.server = await T.api.config(); }
-    catch (e) { errorConfig = e; S.server = { hasKey: false, models: {}, voice: { provider: "browser" } }; }
+    catch (e) { errorConfig = e; S.server = { hasKey: false, models: {}, ia: {}, voice: { provider: "browser" } }; }
     T.api.setProvider(S.server);
     try { S.cfg = await T.api.empresa.get(); }
     catch (e) {
