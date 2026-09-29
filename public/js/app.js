@@ -37,6 +37,7 @@
   const clone = o => JSON.parse(JSON.stringify(o));
   const initials = n => (n || "?").split(/\s+/).filter(Boolean).slice(0, 2).map(w => w[0].toUpperCase()).join("");
   const firstName = n => (n || "").split(/\s+/)[0] || n;
+  const enPersona = e => T.prompts.enPersona(e);
   const clientName = e => (e.cliente || "El cliente").split(",")[0].trim();
   const fmtDate = iso => { try { return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (_) { return iso; } };
   const fmtDur = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
@@ -66,7 +67,10 @@
     download: '<path d="M10 3v10M5.5 8.5 10 13l4.5-4.5M4 17h12"/>',
     back: '<path d="M12 4 6 10l6 6"/>',
     trash: '<path d="M4 6h12M8 6V4h4v2M6 6l1 11h6l1-11"/>',
-    upload: '<path d="M10 14V3M5.5 7.5 10 3l4.5 4.5M4 17h12"/>'
+    upload: '<path d="M10 14V3M5.5 7.5 10 3l4.5 4.5M4 17h12"/>',
+    book: '<path d="M3.5 4.5c2.5-1 4.5-1 6.5.5 2-1.5 4-1.5 6.5-.5V16c-2.5-1-4.5-1-6.5.5-2-1.5-4-1.5-6.5-.5z"/><path d="M10 5v11.5"/>',
+    up: '<path d="M5 12l5-5 5 5"/>',
+    down: '<path d="M5 8l5 5 5-5"/>'
   };
   const icon = k => svg(ICON[k]);
 
@@ -77,7 +81,7 @@
     profile: "estudiante",
     view: "sims",
     params: {},
-    cfg: null,          // configuración de la empresa (la carga el senior)
+    cfg: null,          // configuración de la empresa (la carga la persona responsable)
     server: null,       // /api/config
     candidato: store.get("tutoring.candidato", "Lucas Ferreyra"),
     voiceName: store.get("tutoring.voice", ""),
@@ -186,15 +190,16 @@
       nav.append(h("button", { class: "new", onclick: () => { J.current = null; saveJ(); go("chat"); $("input").focus(); } }, svg('<path d="M8 3v10M3 8h10" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>', "0 0 16 16"), "Nuevo chat"));
       nav.append(h("div", { class: "side-label", text: "Conversaciones" }));
       const hist = h("div", { class: "hist" });
-      if (!J.chats.length) hist.append(h("div", { class: "empty", text: "Todavía no hay conversaciones." }));
-      J.chats.slice().reverse().forEach(c => hist.append(h("button", { class: c.id === J.current ? "on" : null, text: c.title, title: c.title, onclick: () => { J.current = c.id; saveJ(); go("chat"); } })));
+      if (!J.chats.some(deEstaEmpresa)) hist.append(h("div", { class: "empty", text: "Todavía no hay conversaciones." }));
+      J.chats.slice().reverse().filter(deEstaEmpresa).forEach(c => hist.append(h("button", { class: c.id === J.current ? "on" : null, text: c.title, title: c.title, onclick: () => { J.current = c.id; saveJ(); go("chat"); } })));
       nav.append(hist);
       person = JUNIOR;
     } else {
       nav.append(h("nav", { class: "nav" },
         navBtn("contexto", "Contexto", "ctx"), navBtn("escenarios", "Escenarios", "esc"),
         navBtn("criterios", "Criterios", "crit"), navBtn("informes", "Informes", "reports")));
-      person = { name: S.cfg.senior, role: "Senior · " + S.cfg.empresa };
+      const r = S.cfg.responsable || {};
+      person = { name: r.nombre || "Responsable", role: (r.rol ? r.rol + " · " : "") + S.cfg.empresa };
     }
     $("meName").textContent = person.name; $("meRole").textContent = person.role; $("meAv").textContent = initials(person.name);
   }
@@ -209,10 +214,10 @@
     const nameInput = h("input", { id: "candidato", type: "text", value: S.candidato, "aria-label": "Tu nombre",
       onchange: e => { S.candidato = e.target.value.trim() || "Candidato"; store.set("tutoring.candidato", S.candidato); renderSide(); } });
     const cards = h("div", { class: "cards" });
-    if (!S.cfg.escenarios.length) cards.append(h("div", { class: "notice", text: "Todavía no hay escenarios cargados. El senior los crea desde el perfil Empresa → Escenarios." }));
+    if (!S.cfg.escenarios.length) cards.append(h("div", { class: "notice", text: "Todavía no hay escenarios cargados. La persona responsable los crea desde el perfil Empresa → Escenarios." }));
     S.cfg.escenarios.forEach(e => cards.append(
       h("button", { class: "card", onclick: () => go("brief", { id: e.id }) },
-        icon("phone"), h("b", { text: e.titulo }), h("span", { text: e.resumen }),
+        icon(enPersona(e) ? "esc" : "phone"), h("b", { text: e.titulo }), h("span", { text: e.resumen }),
         h("div", { class: "meta" }, h("span", { class: "tag", text: `${e.duracion || 5} min` }), h("span", { class: "tag", text: `Dificultad ${String(e.dificultad || "media").toLowerCase()}` })))
     ));
     col.append(h("div", { class: "hero" },
@@ -263,7 +268,7 @@
     col.append(h("ul", { class: "tips" },
       h("li", { text: "Hablá con naturalidad. Cuando hacés una pausa, el cliente responde." }),
       h("li", { text: "Si el cliente está hablando, tocá la esfera para interrumpirlo." }),
-      h("li", { text: "La llamada termina cuando se despiden o cuando tocás Colgar." })));
+      h("li", { text: enPersona(e) ? "La conversación termina cuando se despiden o cuando tocás Terminar." : "La llamada termina cuando se despiden o cuando tocás Colgar." })));
 
     if (!S.server.hasKey) col.append(h("div", { class: "notice red", text: S.server.problema || `Falta la API key: pegala en el archivo .env (${S.server.keyVar || "API key"}) y reiniciá el servidor.` }));
     if (!S.cfg.criterios.length) col.append(h("div", { class: "notice red", text: "No hay criterios de evaluación cargados: la simulación va a funcionar, pero no se puede armar el informe. Cargalos en Empresa → Criterios." }));
@@ -288,7 +293,7 @@
       });
       col.append(h("div", { class: "voice-row" }, h("label", { for: "voiceSel", class: "muted", text: "Voz del cliente" }), sel, test));
     }
-    col.append(h("div", null, h("button", { class: "btn lg", id: "startCall", disabled: !S.server.hasKey, onclick: () => go("call", { id: e.id }) }, icon("phone"), "Empezar llamada")));
+    col.append(h("div", null, h("button", { class: "btn lg", id: "startCall", disabled: !S.server.hasKey, onclick: () => go("call", { id: e.id }) }, icon(enPersona(e) ? "esc" : "phone"), enPersona(e) ? "Empezar conversación" : "Empezar llamada")));
     view.append(col);
   };
 
@@ -315,7 +320,7 @@
     const micBtn = h("button", { class: "round", "aria-label": "Silenciar micrófono", "aria-pressed": "false", title: "Silenciar micrófono" }, icon("mic"));
     const kbBtn = h("button", { class: "round", "aria-label": "Escribir en vez de hablar", "aria-pressed": "false", "aria-expanded": "false", title: "Escribir en vez de hablar" }, icon("keyboard"));
     const txBtn = h("button", { class: "round", "aria-label": "Ver transcripción", "aria-pressed": "false", title: "Ver transcripción" }, icon("list"));
-    const hang = h("button", { class: "hang", id: "hang" }, icon("hangup"), "Colgar");
+    const hang = h("button", { class: "hang", id: "hang" }, icon("hangup"), enPersona(e) ? "Terminar" : "Colgar");
     const typeInput = h("input", { type: "text", placeholder: "Escribí tu respuesta y apretá Enter", "aria-label": "Tu respuesta" });
     const typebar = h("form", { class: "typebar", hidden: true, onsubmit: ev => { ev.preventDefault(); S.engine && S.engine.sendText(typeInput.value); typeInput.value = ""; } },
       typeInput, h("button", { class: "btn", type: "submit", text: "Enviar" }));
@@ -426,7 +431,7 @@
     const id = S.params.id;
     view.append(h("div", { class: "col hero" },
       h("div", { class: "orb", "aria-hidden": "true" }),
-      h("h1", { class: "ask", text: "La llamada fue muy corta" }),
+      h("h1", { class: "ask", text: "La conversación fue muy corta" }),
       h("p", { class: "sub", text: "Para armar un informe hacen falta al menos dos respuestas tuyas." }),
       h("div", { class: "r-actions", style: "justify-content:center" },
         h("button", { class: "btn", onclick: () => go("call", { id }) }, "Volver a intentar"),
@@ -438,7 +443,7 @@
   // ------------------------------------------------------------------
   VIEWS.evaluating = view => {
     const call = S.lastCall; if (!call) return go("sims");
-    const status = h("p", { class: "sub", text: `Aplicando los criterios que definió ${S.cfg.senior} en ${S.cfg.empresa}.` });
+    const status = h("p", { class: "sub", text: `Aplicando los criterios que definió ${T.core.responsableTexto(S.cfg)} en ${S.cfg.empresa}.` });
     const box = h("div", { class: "col hero" }, h("div", { class: "orb", "aria-hidden": "true" }),
       h("h1", { class: "ask", text: "Analizando la conversación…" }), status);
     view.append(box);
@@ -462,7 +467,7 @@
       const p = T.core.puntajePonderado(cfg.criterios, ev.criterios);
       const report = {
         candidato: S.candidato, fecha: new Date().toISOString(), duracionSeg: call.seconds,
-        empresa: cfg.empresa, senior: cfg.senior,
+        empresa: cfg.empresa, responsable: T.core.responsableTexto(cfg),
         escenario: { titulo: e.titulo, resumen: e.resumen, cliente: e.cliente, objetivo: e.objetivo },
         criteriosDef: clone(cfg.criterios), evaluacion: ev,
         puntaje: p.puntaje, criteriosPuntuados: p.cubiertos,
@@ -563,38 +568,46 @@
     (r.transcripcion || []).forEach(t => tx.append(h("div", { class: "ln " + (t.role === "user" ? "u" : "c") }, h("b", { text: t.role === "user" ? firstName(r.candidato) : clientName(r.escenario) }), t.text)));
     col.append(h("details", { class: "tx" }, h("summary", { text: "Ver la conversación completa" }), tx));
 
-    col.append(h("p", { class: "disclaimer", text: `Este informe no recomienda contratar ni descartar: la decisión es de una persona. Evaluación generada con IA según los criterios definidos por ${r.senior} (${r.empresa}), a partir de una simulación. Puede contener errores de transcripción.` }));
+    col.append(h("p", { class: "disclaimer", text: `Este informe no recomienda contratar ni descartar: la decisión es de una persona. Evaluación generada con IA según los criterios definidos por ${r.responsable || r.senior} (${r.empresa}), a partir de una simulación. Puede contener errores de transcripción.` }));
     view.append(col);
   };
 
   // ------------------------------------------------------------------
   // JUNIOR: mentor del equipo
   // ------------------------------------------------------------------
-  const ACTIONS = [
-    { id: "codigo", icon: "code", title: "Entender el código", desc: "Qué hace cada parte y por qué existe para el negocio.",
-      send: "Explicame qué hace jobs/recordatorios.js y por qué existe." },
-    { id: "metodologia", icon: "flow", title: "Cómo trabajamos", desc: "Metodología, ramas, reviews y deploys del equipo.",
-      send: "¿Cómo trabaja el equipo? Contame el proceso desde que tomo un ticket hasta que llega a producción." },
-    { id: "ticket", icon: "ticket", title: "Encarar un ticket", desc: "Te acompaño a resolverlo entendiendo cada paso.",
-      send: "Me asignaron este ticket:\n\nTF-142 · Prioridad 2\nAlgunos clientes reciben el recordatorio del turno dos veces por WhatsApp. Lo reportaron Clínica Norte y 3 peluquerías. Empezó a mediados de septiembre.\n\n¿Cómo lo encaro?" },
-    { id: "pr", icon: "check", title: "Antes del PR", desc: "Reviso tu cambio con los criterios del senior.",
-      fill: "Revisá mi cambio antes de abrir el PR (ticket TF-142):\n\n```js\n// jobs/recordatorios.js\nfor (const turno of turnos.rows) {\n  // Marco el turno antes de enviar para que no se repita\n  await db.query(\n    \"UPDATE turnos SET recordatorio_enviado = true WHERE id = $1\",\n    [turno.id]\n  );\n  const mensaje = armarMensaje(turno);\n  await whatsapp.enviar(turno.telefono, mensaje);\n}\n```" }
-  ];
-  const ACTION_LABEL = { codigo: "Código", metodologia: "Metodología", ticket: "Ticket", pr: "PR", libre: "Consulta" };
+  // Las cuatro acciones del junior. Los textos de ejemplo salen de la empresa cargada.
+  function actions() {
+    const sw = T.core.esSoftware(S.cfg);
+    const te = S.cfg.tareaEjemplo || {};
+    const emp = S.cfg.empresa;
+    return [
+      { id: "entender", icon: sw ? "code" : "book", title: "Entender cómo funciona", desc: sw ? "Un proceso, una herramienta o el código, y por qué existe." : "Un proceso, un área o una herramienta, y por qué existe.",
+        send: te.entender || `¿Cómo funciona el trabajo diario en ${emp}? Explicame el circuito principal y por qué se hace así.` },
+      { id: "trabajo", icon: "flow", title: "Cómo trabajamos", desc: "Roles, reglas y forma de trabajo, con el porqué de cada una.",
+        send: te.trabajo || `¿Cómo se trabaja en ${emp}? Contame los roles, las reglas y por qué existe cada una.` },
+      { id: "tarea", icon: "ticket", title: "Resolver una tarea", desc: "Te acompaño a resolverla entendiendo cada paso.",
+        send: te.tarea || "Tengo que resolver esta tarea: (describila acá). ¿Cómo la encaro?" },
+      { id: "revisar", icon: "check", title: "Revisar antes de entregar", desc: `Reviso lo que hiciste con los criterios de calidad de ${emp}.`,
+        fill: te.revisar || "Revisá esto antes de entregarlo:\n\n" }
+    ];
+  }
+  const ACTION_LABEL = { entender: "Entender", trabajo: "Cómo trabajamos", tarea: "Tarea", revisar: "Revisión", codigo: "Código", metodologia: "Metodología", ticket: "Ticket", pr: "PR", libre: "Consulta" };
   let jBusy = false, jCtl = null;
-  const jChat = () => J.chats.find(c => c.id === J.current) || null;
+  // Cada chat queda asociado a la empresa con la que se abrió: al cambiar de ejemplo no se mezclan.
+  const deEstaEmpresa = c => !c.empresa || c.empresa === S.cfg.empresa;
+  const jChat = () => J.chats.find(c => c.id === J.current && deEstaEmpresa(c)) || null;
 
   VIEWS.chat = view => {
     const c = jChat();
     const col = h("div", { class: "col" });
     if (!c) {
       const cards = h("div", { class: "cards four" });
-      ACTIONS.forEach(a => cards.append(h("button", { class: "card", onclick: () => startAction(a) }, icon(a.icon), h("b", { text: a.title }), h("span", { text: a.desc }))));
+      actions().forEach(a => cards.append(h("button", { class: "card", onclick: () => startAction(a) }, icon(a.icon), h("b", { text: a.title }), h("span", { text: a.desc }))));
       col.append(h("div", { class: "hero compact" },
         h("div", { class: "orb", "aria-hidden": "true" }),
         h("p", { class: "hello", text: `Hola, ${firstName(JUNIOR.name)}` }),
         h("h1", { class: "ask", text: "¿En qué te ayudo hoy?" }),
-        h("p", { class: "sub", text: `Conozco el código y la forma de trabajar de ${S.cfg.empresa}. Te explico lo técnico y el porqué de negocio.` }),
+        h("p", { class: "sub", text: `Conozco cómo trabaja ${S.cfg.empresa}. Te explico cómo se hace cada cosa y por qué importa para el negocio.` }),
         cards));
     } else {
       const thread = h("div", { class: "thread", id: "thread" });
@@ -607,20 +620,25 @@
   };
 
   function startAction(a) {
-    const c = { id: String(Date.now()), action: a.id, title: `${ACTION_LABEL[a.id]} · ${a.title}`, turns: [] };
+    const c = { id: String(Date.now()), empresa: S.cfg.empresa, action: a.id, title: `${ACTION_LABEL[a.id]} · ${a.title}`, turns: [] };
     if (a.fill) {
       J.chats.push(c); J.current = c.id; saveJ(); go("chat");
       $("input").value = a.fill; autosize(); $("input").focus();
-      toast("Pegamos un cambio de ejemplo. Tocá enviar o reemplazalo por el tuyo.");
+      toast("Pegamos un ejemplo. Tocá enviar o reemplazalo por lo tuyo.");
       return;
     }
     J.chats.push(c); J.current = c.id; saveJ();
     sendJunior(a.send);
   }
 
-  // Formato de las respuestas del mentor: bloques [Técnico] [Negocio] [Cómo lo hacemos acá] [Tu turno]
-  const TAGS = { "técnico": "tec", "tecnico": "tec", "negocio": "neg", "cómo lo hacemos acá": "met", "como lo hacemos aca": "met", "cómo lo hacemos aca": "met", "tu turno": "tur" };
-  const TAG_LABEL = { tec: "Técnico", neg: "Negocio", met: "Cómo lo hacemos acá", tur: "Tu turno" };
+  // Formato de las respuestas del mentor: bloques [Cómo se hace] [Por qué importa] [Cómo lo hacemos acá] [Tu turno].
+  // Seguimos aceptando las etiquetas viejas ([Técnico], [Negocio]).
+  const TAGS = {
+    "cómo se hace": "hace", "como se hace": "hace", "técnico": "hace", "tecnico": "hace",
+    "por qué importa": "imp", "por que importa": "imp", "negocio": "imp",
+    "cómo lo hacemos acá": "met", "como lo hacemos aca": "met", "cómo lo hacemos aca": "met", "tu turno": "tur"
+  };
+  const TAG_LABEL = { hace: "Cómo se hace", imp: "Por qué importa", met: "Cómo lo hacemos acá", tur: "Tu turno" };
   function mdInline(s) { return esc(s).replace(/`([^`]+)`/g, "<code>$1</code>").replace(/\*\*([^*]+)\*\*/g, "<b>$1</b>"); }
   function mdText(s) {
     let html = "";
@@ -668,19 +686,21 @@
 
   function renderComposer() {
     const input = $("input");
-    input.placeholder = "Preguntá lo que necesites o pegá tu código…";
+    const sw = T.core.esSoftware(S.cfg);
+    input.placeholder = sw ? "Preguntá lo que necesites o pegá tu código…" : "Preguntá lo que necesites…";
+    $("pasteCode").hidden = !sw;
     const send = $("send");
     send.classList.toggle("stop", jBusy);
     send.setAttribute("aria-label", jBusy ? "Detener" : "Enviar");
     send.replaceChildren(jBusy ? svg('<rect x="4.5" y="4.5" width="7" height="7" rx="1" fill="#fff" stroke="none"/>', "0 0 16 16") : svg('<path d="M8 13V3M3.5 7.5 8 3l4.5 4.5" stroke-linecap="round" stroke-linejoin="round"/>', "0 0 16 16"));
-    const line = $("ctxLine"); line.replaceChildren("Entrenado con el contexto de ", h("b", { text: S.cfg.empresa }), `, cargado por ${S.cfg.senior} (senior)`);
+    const line = $("ctxLine"); line.replaceChildren("Entrenado con el contexto de ", h("b", { text: S.cfg.empresa }), `, cargado por ${T.core.responsableTexto(S.cfg)}`);
   }
 
   async function sendJunior(text) {
     text = (text || "").trim();
     if (!text || jBusy) return;
     let c = jChat();
-    if (!c) { c = { id: String(Date.now()), action: "libre", title: text.slice(0, 60), turns: [] }; J.chats.push(c); J.current = c.id; }
+    if (!c) { c = { id: String(Date.now()), empresa: S.cfg.empresa, action: "libre", title: text.slice(0, 60), turns: [] }; J.chats.push(c); J.current = c.id; }
     c.turns.push({ role: "user", content: text });
     const reply = { role: "assistant", content: "", pending: true };
     c.turns.push(reply);
@@ -737,7 +757,7 @@
   });
 
   // ------------------------------------------------------------------
-  // EMPRESA (senior): configuración
+  // EMPRESA (persona responsable): configuración
   // ------------------------------------------------------------------
   function markDirty() { S.dirty = true; const d = document.querySelector(".dirty"); if (d) d.hidden = false; const b = $("saveCfg"); if (b) b.disabled = false; }
   async function saveCfg() {
@@ -757,38 +777,119 @@
   }
   function autoGrow(t) { const f = () => { t.style.height = "auto"; t.style.height = Math.max(84, t.scrollHeight + 2) + "px"; }; t.addEventListener("input", f); requestAnimationFrame(f); return t; }
 
+  // Carga un ejemplo completo (reemplaza toda la configuración) y lo guarda.
+  async function cargarEjemplo(clave) {
+    const ej = T.EJEMPLOS[clave];
+    if (!ej) return;
+    if (!confirm(`¿Cargar el ejemplo "${ej.etiqueta}"? Reemplaza TODA la configuración actual (contextos, documentos, escenarios y criterios).`)) return;
+    S.cfg = T.core.normalizarConfig(clone(ej.config));
+    S.params = {};
+    try { await T.api.empresa.save(S.cfg); S.dirty = false; toast(`Cargamos "${S.cfg.empresa}". El agente ya lo usa.`); }
+    catch (e) { S.dirty = true; toast("Se cargó el ejemplo, pero no se pudo guardar: " + T.api.errorCopy(e)); }
+    render();
+  }
+
   VIEWS.contexto = view => {
     const col = h("div", { class: "wide cfg" });
-    col.append(cfgHead("Contexto de la empresa", "Lo cargás una vez. El mentor de los juniors y las simulaciones usan todo esto para responder y evaluar."));
-    const inp = (key, obj) => h("input", { type: "text", value: obj[key] || "", oninput: e => { obj[key] = e.target.value; markDirty(); } });
-    col.append(h("div", { class: "grid2" }, field("Empresa", null, inp("empresa", S.cfg)), field("Senior responsable", null, inp("senior", S.cfg))));
-    T.CONTEXT_SECTIONS.forEach(s => {
-      const t = autoGrow(h("textarea", { oninput: e => { S.cfg.contexto[s.key] = e.target.value; markDirty(); } }));
-      t.value = S.cfg.contexto[s.key] || "";
-      col.append(field(s.titulo, s.ayuda, t));
+    col.append(cfgHead("Contexto de la empresa", "Lo cargás una vez. El mentor y las simulaciones usan todo esto para responder y evaluar."));
+
+    // ---- Cargar ejemplo
+    const selEj = h("select", { "aria-label": "Empresa de ejemplo" },
+      h("option", { value: "", text: "Elegí un ejemplo…" }),
+      Object.keys(T.EJEMPLOS).map(k => h("option", { value: k, text: T.EJEMPLOS[k].etiqueta })));
+    col.append(h("div", { class: "ej-row" },
+      h("span", { class: "muted", text: "¿Querés ver cómo queda?" }), selEj,
+      h("button", { class: "btn-o", onclick: () => { if (selEj.value) cargarEjemplo(selEj.value); else toast("Elegí un ejemplo de la lista."); } }, "Cargar ejemplo")));
+
+    // ---- Datos básicos
+    const inp = (obj, key, extra) => h("input", Object.assign({ type: "text", value: obj[key] || "", oninput: e => { obj[key] = e.target.value; markDirty(); } }, extra || {}));
+    const lista = h("datalist", { id: "rubros" }, T.RUBROS.map(r => h("option", { value: r })));
+    col.append(h("h2", { class: "cfg-sec", text: "Datos básicos" }));
+    col.append(h("div", { class: "grid2" },
+      field("Nombre de la empresa", null, inp(S.cfg, "empresa")),
+      field("Rubro", "Elegí o escribí el tuyo.", inp(S.cfg, "rubro", { list: "rubros", placeholder: "Software, Gastronomía, Comercio…" }))), lista);
+    col.append(h("div", { class: "grid2" },
+      field("Persona responsable", "Quien carga el contexto.", inp(S.cfg.responsable, "nombre", { placeholder: "Ana Gómez" })),
+      field("Rol", null, inp(S.cfg.responsable, "rol", { placeholder: "Encargada de salón, líder técnico…" }))));
+
+    // ---- Contextos generales
+    col.append(h("h2", { class: "cfg-sec", text: "Contextos generales" }),
+      h("p", { class: "muted cfg-sub", text: "Siempre están. Podés dejar alguno vacío si no aplica." }));
+    S.cfg.contextos.filter(c => c.general).forEach(c => {
+      const def = T.core.GENERALES.find(g => g.clave === c.clave) || {};
+      const t = autoGrow(h("textarea", { oninput: e => { c.contenido = e.target.value; markDirty(); } }));
+      t.value = c.contenido || "";
+      col.append(field(c.titulo, def.ayuda, t));
     });
 
+    // ---- Contextos particulares
+    col.append(h("h2", { class: "cfg-sec", text: "Contextos particulares" }),
+      h("p", { class: "muted cfg-sub", text: "Lo propio de tu negocio: un área, un procedimiento, una situación frecuente. Por ejemplo: \"Atención en el salón\" o \"Cierre de caja\"." }));
+    const particulares = () => S.cfg.contextos.filter(c => !c.general);
+    const mover = (c, delta) => {
+      const ps = particulares();
+      const i = ps.indexOf(c), j = i + delta;
+      if (j < 0 || j >= ps.length) return;
+      [ps[i], ps[j]] = [ps[j], ps[i]];
+      S.cfg.contextos = S.cfg.contextos.filter(x => x.general).concat(ps);
+      markDirty(); render();
+    };
+    const ps = particulares();
+    if (!ps.length) col.append(h("p", { class: "muted", text: "Todavía no agregaste ninguno." }));
+    ps.forEach((c, i) => {
+      const titulo = h("input", { type: "text", value: c.titulo, placeholder: "Título (por ejemplo: Reclamos)", "aria-label": "Título del contexto", "data-ctx": c.id,
+        oninput: e => { c.titulo = e.target.value; markDirty(); } });
+      const cont = autoGrow(h("textarea", { placeholder: "Qué tiene que saber alguien nuevo sobre esto, y por qué se hace así.", "aria-label": "Contenido de " + (c.titulo || "contexto"),
+        oninput: e => { c.contenido = e.target.value; markDirty(); } }));
+      cont.value = c.contenido || "";
+      col.append(h("div", { class: "ctx-card" },
+        h("div", { class: "ctx-top" }, titulo,
+          h("button", { class: "icon-x", "aria-label": "Subir " + (c.titulo || "contexto"), title: "Subir", disabled: i === 0, onclick: () => mover(c, -1) }, icon("up")),
+          h("button", { class: "icon-x", "aria-label": "Bajar " + (c.titulo || "contexto"), title: "Bajar", disabled: i === ps.length - 1, onclick: () => mover(c, 1) }, icon("down")),
+          h("button", { class: "icon-x", "aria-label": "Eliminar " + (c.titulo || "contexto"), title: "Eliminar", onclick: () => {
+            if (!confirm(`¿Eliminar el contexto "${c.titulo || "sin título"}"?`)) return;
+            S.cfg.contextos = S.cfg.contextos.filter(x => x !== c); markDirty(); render();
+          } }, icon("trash"))),
+        cont));
+    });
+    col.append(h("div", null, h("button", { class: "btn-o", onclick: () => {
+      const nuevo = { id: T.core.nuevoId("p"), titulo: "", contenido: "", general: false };
+      S.cfg.contextos.push(nuevo); markDirty(); render();
+      const el = document.querySelector(`[data-ctx="${nuevo.id}"]`);
+      if (el) { el.scrollIntoView({ block: "center" }); el.focus(); }
+    } }, icon("plus"), "Agregar contexto")));
+
+    // ---- Documentos de referencia
     const files = h("div", { class: "files" });
     const drawFiles = () => {
       files.replaceChildren();
-      if (!S.cfg.archivos.length) files.append(h("span", { class: "muted", text: "Sin archivos cargados." }));
-      S.cfg.archivos.forEach((f, i) => files.append(h("div", { class: "fchip" }, h("span", { text: f.nombre }),
-        h("button", { "aria-label": "Quitar " + f.nombre, onclick: () => { S.cfg.archivos.splice(i, 1); markDirty(); drawFiles(); } }, "×"))));
+      if (!S.cfg.documentos.length) files.append(h("span", { class: "muted", text: "Sin documentos cargados." }));
+      S.cfg.documentos.forEach((f, i) => files.append(h("div", { class: "fchip" }, h("span", { text: f.nombre }),
+        h("button", { "aria-label": "Quitar " + f.nombre, onclick: () => { S.cfg.documentos.splice(i, 1); markDirty(); drawFiles(); } }, "×"))));
     };
     drawFiles();
-    const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".txt,.md,.json,.js,.ts,.jsx,.tsx,.py,.java,.sql,.css,.html,.yml,.yaml,.xml,.cs,.php,.go,.rb" });
+    const fileInput = h("input", { type: "file", multiple: true, hidden: true, accept: ".txt,.md,.csv,.json,.js,.ts,.jsx,.tsx,.py,.java,.sql,.css,.html,.yml,.yaml,.xml,.cs,.php,.go,.rb" });
     fileInput.addEventListener("change", async ev => {
       for (const f of Array.from(ev.target.files)) {
         let c = await f.text().catch(() => null); if (c == null) continue;
-        if (c.length > 60000) c = c.slice(0, 60000) + "\n[… archivo recortado]";
-        S.cfg.archivos = S.cfg.archivos.filter(x => x.nombre !== f.name); S.cfg.archivos.push({ nombre: f.name, contenido: c });
+        if (c.length > 60000) c = c.slice(0, 60000) + "\n[… documento recortado]";
+        S.cfg.documentos = S.cfg.documentos.filter(x => x.nombre !== f.name); S.cfg.documentos.push({ nombre: f.name, contenido: c });
       }
       ev.target.value = ""; markDirty(); drawFiles();
     });
+    col.append(h("h2", { class: "cfg-sec", text: "Documentos de referencia" }));
     col.append(h("div", { class: "field" },
-      h("label", null, "Archivos del repositorio", h("span", { class: "help", text: "Código o documentación que el mentor puede citar." })),
-      files, h("div", null, h("button", { class: "btn-o", onclick: () => fileInput.click() }, icon("upload"), "Agregar archivos")), fileInput));
-    col.append(h("div", null, h("button", { class: "btn-o", onclick: () => { if (confirm("¿Reemplazar todo por la configuración de ejemplo?")) { S.cfg = clone(T.DEFAULTS); markDirty(); render(); } } }, "Restaurar ejemplo")));
+      h("label", null, "Manuales, procedimientos, cartas, listas de precios o código", h("span", { class: "help", text: "Archivos de texto que el mentor puede citar." })),
+      files, h("div", null, h("button", { class: "btn-o", onclick: () => fileInput.click() }, icon("upload"), "Agregar documentos")), fileInput));
+
+    // ---- Ejemplos para el junior
+    col.append(h("h2", { class: "cfg-sec", text: "Ejemplos para quien recién entra" }),
+      h("p", { class: "muted cfg-sub", text: "Los textos que aparecen al tocar cada tarjeta del perfil Junior. Si los dejás vacíos, se usa uno genérico." }));
+    [["entender", "Entender cómo funciona"], ["trabajo", "Cómo trabajamos"], ["tarea", "Resolver una tarea"], ["revisar", "Revisar antes de entregar"]].forEach(([k, lbl]) => {
+      const t = autoGrow(h("textarea", { oninput: e => { S.cfg.tareaEjemplo[k] = e.target.value; markDirty(); } }));
+      t.value = S.cfg.tareaEjemplo[k] || "";
+      col.append(field(lbl, null, t));
+    });
     view.append(col);
   };
 
@@ -809,7 +910,10 @@
         acc.append(h("div", { class: "acc-b" },
           field("Título", null, tin("titulo")),
           field("Resumen", "Lo que ve el candidato antes de empezar.", tin("resumen")),
-          field("Cliente", "Nombre, rol y empresa.", tin("cliente")),
+          h("div", { class: "grid2" },
+            field("Cliente", "Nombre y quién es.", tin("cliente")),
+            field("Modalidad", null, h("select", { onchange: ev => { e.modalidad = ev.target.value; markDirty(); } },
+              [["llamada", "Llamada telefónica"], ["presencial", "En persona"]].map(([v, t]) => h("option", { value: v, text: t, selected: (e.modalidad || "llamada") === v }))))),
           field("Personalidad", "Cómo habla y cómo reacciona.", tx("personalidad")),
           field("Situación", "Incluí los datos que solo da si le preguntan.", tx("situacion")),
           field("Objetivo del candidato", null, tx("objetivo")),
@@ -819,7 +923,7 @@
       col.append(acc);
     });
     col.append(h("div", null, h("button", { class: "btn-o", onclick: () => {
-      const e = { id: "esc-" + Date.now(), titulo: "Nuevo escenario", resumen: "", cliente: "", personalidad: "", situacion: "", objetivo: "", duracion: 5, dificultad: "Media" };
+      const e = { id: "esc-" + Date.now(), titulo: "Nuevo escenario", resumen: "", modalidad: "llamada", cliente: "", personalidad: "", situacion: "", objetivo: "", duracion: 5, dificultad: "Media" };
       S.cfg.escenarios.push(e); markDirty(); S.params = { open: e.id }; render();
     } }, icon("plus"), "Agregar escenario")));
     view.append(col);
@@ -847,7 +951,8 @@
   VIEWS.informes = view => {
     const col = h("div", { class: "wide cfg" });
     col.append(h("div", { class: "cfg-head" }, h("div", null, h("h1", { text: "Informes de candidatos" }), h("p", { text: "Resultados de las simulaciones. La decisión siempre la toma una persona." }))));
-    col.append(S.informes.length ? reportList(S.informes, true) : h("p", { class: "muted", text: "Todavía no hay informes. Aparecen acá cuando un candidato termina una simulación." }));
+    const deEsta = S.informes.filter(r => !r.empresa || r.empresa === S.cfg.empresa);
+    col.append(deEsta.length ? reportList(deEsta, true) : h("p", { class: "muted", text: "Todavía no hay informes. Aparecen acá cuando un candidato termina una simulación." }));
     view.append(col);
   };
 
@@ -881,10 +986,9 @@
       S.cfg = clone(T.DEFAULTS);
       if (e && e.status && e.status !== 404) toast("No se pudo leer la configuración guardada: se está usando la de ejemplo.");
     }
-    // Completa campos que falten (por si la configuración guardada es de una versión anterior).
-    S.cfg = Object.assign(clone(T.DEFAULTS), S.cfg);
-    S.cfg.contexto = Object.assign({}, T.DEFAULTS.contexto, S.cfg.contexto);
-    ["escenarios", "criterios", "archivos"].forEach(k => { if (!Array.isArray(S.cfg[k])) S.cfg[k] = clone(T.DEFAULTS[k]); });
+    // Convierte el formato viejo (si hiciera falta) y completa lo que falte.
+    S.cfg = T.core.migrarConfig(S.cfg) || T.core.normalizarConfig(clone(T.DEFAULTS));
+    if (!S.cfg.empresa) S.cfg.empresa = T.DEFAULTS.empresa;
     try { S.informes = await T.api.informes.list(); } catch (_) { S.informes = []; }
     render();
     if (errorConfig) toast(T.api.errorCopy(errorConfig));
