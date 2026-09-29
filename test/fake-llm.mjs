@@ -104,11 +104,15 @@ export async function startFakeLLM() {
       return;
     }
 
-    const text = replyFor(system, lastUser);
+    const evaluaciones = calls.filter(c => c.url === url && c.payload.messages.some(m => m.content === lastUser)).length;
+    const incompleta = caso === "EVAL_TRUNCADA" && evaluaciones === 1;
+    const invalida = caso === "EVAL_INVALIDA" && evaluaciones === 1;
+    const sinCriterios = caso === "EVAL_SIN_CRITERIOS";
+    const text = incompleta ? '{"criterios":[' : invalida ? 'No es JSON' : sinCriterios ? '{"resumen":"sin criterios"}' : replyFor(system, lastUser);
     res.writeHead(200, { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-cache" });
     if (esGemini) {
       for (const t of trozos(text)) res.write(`data: ${JSON.stringify({ choices: [{ delta: { content: t } }] })}\n\n`);
-      res.write('data: {"choices":[{"delta":{},"finish_reason":"stop"}]}\n\n');
+      res.write(`data: ${JSON.stringify({ choices: [{ delta: {}, finish_reason: incompleta ? "length" : "stop" }] })}\n\n`);
       res.write("data: [DONE]\n\n");
     } else {
       const ev = (type, obj) => res.write(`event: ${type}\ndata: ${JSON.stringify({ type, ...obj })}\n\n`);

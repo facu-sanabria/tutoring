@@ -471,30 +471,37 @@
     const token = ++navToken;
     const vigente = () => navToken === token && S.view === "evaluating";
     try {
-      const text = await T.api.claude({
-        purpose: "eval", maxTokens: 2500,
-        onStatus: msg => { if (vigente()) { const st = box.querySelector(".sub"); if (st) st.textContent = msg; } },
-        system: "Sos un evaluador riguroso y justo. Respondés solo con un objeto JSON válido, sin texto alrededor.",
-        messages: [{ role: "user", content: T.prompts.evaluacion(cfg, e, call.turns, S.candidato, Math.max(1, Math.round(call.seconds / 60))) }]
-      });
-      const ev = T.core.parseEvaluacion(text);
-      if (!ev) throw Object.assign(new Error("formato inesperado"), { bad: true });
-      const p = T.core.puntajePonderado(cfg.criterios, ev.criterios);
-      const report = {
-        candidato: S.candidato, fecha: new Date().toISOString(), duracionSeg: call.seconds,
-        empresa: cfg.empresa, responsable: T.core.responsableTexto(cfg),
-        escenario: { titulo: e.titulo, resumen: e.resumen, cliente: e.cliente, objetivo: e.objetivo },
-        criteriosDef: clone(cfg.criterios), evaluacion: ev,
-        puntaje: p.puntaje, criteriosPuntuados: p.cubiertos,
-        transcripcion: call.turns
-      };
-      try {
-        const { id } = await T.api.informes.save(report);
-        report.id = id;
-        S.informes = await T.api.informes.list();
-      } catch (err) {
-        toast("El informe se armó, pero no se pudo guardar en el servidor: " + T.api.errorCopy(err));
+      let report = call.pendingReport;
+      if (!report) {
+        const text = await T.api.claude({
+          purpose: "eval", maxTokens: 2500,
+          onStatus: msg => { if (vigente()) { const st = box.querySelector(".sub"); if (st) st.textContent = msg; } },
+          system: "Sos un evaluador riguroso y justo. Respondés solo con un objeto JSON válido, sin texto alrededor.",
+          messages: [{ role: "user", content: T.prompts.evaluacion(cfg, e, call.turns, S.candidato, Math.max(1, Math.round(call.seconds / 60))) }]
+        });
+        const ev = T.core.parseEvaluacion(text);
+        if (!ev) throw Object.assign(new Error("formato inesperado"), { bad: true });
+        const p = T.core.puntajePonderado(cfg.criterios, ev.criterios);
+        report = {
+          candidato: S.candidato, fecha: new Date().toISOString(), duracionSeg: call.seconds,
+          empresa: cfg.empresa, responsable: T.core.responsableTexto(cfg),
+          escenario: { titulo: e.titulo, resumen: e.resumen, cliente: e.cliente, objetivo: e.objetivo },
+          criteriosDef: clone(cfg.criterios), evaluacion: ev,
+          puntaje: p.puntaje, criteriosPuntuados: p.cubiertos,
+          transcripcion: call.turns
+        };
+        call.pendingReport = report;
       }
+      try {
+        if (!report.id) {
+          const { id } = await T.api.informes.save(report);
+          report.id = id;
+        }
+      } catch (err) {
+        throw new Error("La valoración está lista, pero no se pudo guardar en Empresa → Informes. Reintentá para guardarla sin volver a evaluar. " + T.api.errorCopy(err));
+      }
+      const resumen = { id: report.id, candidato: report.candidato, escenario: report.escenario.titulo, empresa: report.empresa, fecha: report.fecha, puntaje: report.puntaje };
+      S.informes = [resumen, ...S.informes.filter(r => r.id !== report.id)];
       S.report = report; S.lastCall = null;
       if (!vigente()) { toast("El informe quedó listo en “Mis informes”."); return; }
       go("report", { id: report.id });
@@ -968,9 +975,19 @@
   VIEWS.informes = view => {
     const col = h("div", { class: "wide cfg" });
     col.append(h("div", { class: "cfg-head" }, h("div", null, h("h1", { text: "Informes de candidatos" }), h("p", { text: "Resultados de las simulaciones. La decisión siempre la toma una persona." }))));
-    const deEsta = S.informes.filter(r => !r.empresa || r.empresa === S.cfg.empresa);
-    col.append(deEsta.length ? reportList(deEsta, true) : h("p", { class: "muted", text: "Todavía no hay informes. Aparecen acá cuando un candidato termina una simulación." }));
+    const lista = h("div");
+    const mostrar = () => {
+      const deEsta = S.informes.filter(r => !r.empresa || r.empresa === S.cfg.empresa);
+      lista.replaceChildren(deEsta.length ? reportList(deEsta, true) : h("p", { class: "muted", text: "Todavía no hay informes. Aparecen acá cuando un candidato termina una simulación." }));
+    };
+    mostrar();
+    col.append(lista);
     view.append(col);
+    T.api.informes.list().then(informes => {
+      if (!lista.isConnected) return;
+      S.informes = informes;
+      mostrar();
+    }).catch(err => { if (lista.isConnected) toast("No se pudieron actualizar los informes: " + T.api.errorCopy(err)); });
   };
 
   // ------------------------------------------------------------------

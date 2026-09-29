@@ -521,6 +521,21 @@ async function leerSSE(body, ctx, alRecibir, nombre) {
 }
 
 // ---------- Gemini ----------
+const EVAL_SCHEMA = {
+  type: "object",
+  properties: {
+    resumen: { type: "string" },
+    criterios: { type: "array", minItems: 1, items: {
+      type: "object",
+      properties: { nombre: { type: "string" }, puntaje: { type: "integer", minimum: 1, maximum: 5 }, evidencia: { type: "string" }, comentario: { type: "string" } },
+      required: ["nombre", "puntaje", "evidencia", "comentario"], additionalProperties: false
+    } },
+    ...Object.fromEntries(["fortalezas", "a_mejorar", "como_encaro", "preguntas_entrevista"].map(k => [k, { type: "array", items: { type: "string" } }])),
+    expresion: { type: "string" }
+  },
+  required: ["resumen", "criterios", "fortalezas", "a_mejorar", "como_encaro", "preguntas_entrevista", "expresion"],
+  additionalProperties: false
+};
 // Usa el endpoint compatible con OpenAI de Gemini.
 async function runGemini(p, ctx) {
   const prov = PROVIDERS.gemini;
@@ -528,6 +543,7 @@ async function runGemini(p, ctx) {
   if (p.system) messages.push({ role: "system", content: p.system });
   p.messages.forEach(m => messages.push({ role: m.role, content: m.content }));
   const body = { model: p.model, messages, max_tokens: p.max_tokens + prov.extraTokens, stream: true };
+  if (p.purpose === "eval") body.response_format = { type: "json_schema", json_schema: { name: "evaluacion", strict: true, schema: EVAL_SCHEMA } };
   if (prov.reasoning && prov.reasoning !== "default") body.reasoning_effort = prov.reasoning;
   if (p.temperature != null) body.temperature = p.temperature;
 
@@ -586,7 +602,10 @@ async function runGemini(p, ctx) {
     if (/length|max_tokens/i.test(finish)) throw provError(502, "Gemini gastó todo el límite de tokens razonando y no llegó a responder. Subí GEMINI_THINKING_EXTRA en el .env.", "empty");
     throw provError(502, `Gemini devolvió una respuesta vacía${finish ? ` (motivo: ${finish})` : ""}.`, "empty");
   }
-  if (/length|max_tokens/i.test(finish)) ctx.nota = "respuesta cortada por límite de tokens";
+  if (/length|max_tokens/i.test(finish)) {
+    if (p.purpose === "eval") throw provError(502, "La evaluación quedó incompleta por el límite de tokens.", "eval_incompleta");
+    ctx.nota = "respuesta cortada por límite de tokens";
+  }
 }
 
 // La API está creada pero apagada en el proyecto de Google de esa key.
@@ -639,6 +658,7 @@ async function intentar(id, purpose, payload, sse, signal) {
   const model = prov.models[purpose] || prov.models.chat;
   const t0 = Date.now();
   let empezo = false, chars = 0, usage = {}, porTimeout = false;
+  let evaluacionTexto = "";
   const local = new AbortController();
   const alCortar = () => local.abort();
   signal.addEventListener("abort", alCortar, { once: true });
@@ -649,9 +669,11 @@ async function intentar(id, purpose, payload, sse, signal) {
     signal: local.signal,
     onText: t => {
       if (!t || local.signal.aborted) return;
-      if (!empezo) { empezo = true; sse.open(); }
       chars += t.length;
       armar(T_SILENCIO_STREAM);
+      // Una evaluación se entrega completa: los reintentos no deben mezclar JSON.
+      if (purpose === "eval") { evaluacionTexto += t; return; }
+      if (!empezo) { empezo = true; sse.open(); }
       sse.text(t);
     },
     onUsage: u => { Object.keys(u).forEach(k => { if (u[k] != null) usage[k] = u[k]; }); },
@@ -659,8 +681,16 @@ async function intentar(id, purpose, payload, sse, signal) {
     log: m => logIA({ proveedor: id, modelo: model, purpose, ms: Date.now() - t0, nota: m })
   };
   try {
-    await RUN[id]({ ...payload, model }, ctx);
+    await RUN[id]({ ...payload, model, purpose }, ctx);
     if (!chars) throw provError(502, `${prov.name} devolvió una respuesta vacía.`, "empty");
+    if (purpose === "eval") {
+      const ev = core.parseEvaluacion(evaluacionTexto);
+      if (!ev || !ev.criterios.length || ev.criterios.some(c => !c.nombre || c.puntaje == null)) {
+        throw provError(502, "La IA devolvió una evaluación incompleta o con formato inválido. Probá reintentar.", "eval_formato");
+      }
+      sse.open();
+      sse.text(JSON.stringify(ev));
+    }
     logIA({ proveedor: id, modelo: model, purpose, ms: Date.now() - t0, ok: true, tokens: usage, nota: ctx.nota });
     return { ok: true };
   } catch (e) {
@@ -702,7 +732,10 @@ async function responder(purpose, payload, res, signal) {
     }
     if (i > 0) { sse.open(); sse.event({ type: "provider", provider: id, name: PROVIDERS[id].detalle, fallback: true }); }
     for (let intento = 0; intento <= MAX_REINTENTOS; intento++) {
-      const r = await intentar(id, purpose, payload, sse, signal);
+      const pedido = purpose === "eval"
+        ? { ...payload, max_tokens: Math.min(LIMITS.maxTokens, Math.max(4096, payload.max_tokens) * (intento + 1)) }
+        : payload;
+      const r = await intentar(id, purpose, pedido, sse, signal);
       if (r.ok) return sse.close();
       if (r.abortado) return sse.end();
       ultimo = r.error;

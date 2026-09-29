@@ -20,6 +20,7 @@ export async function startApp({ provider = "gemini", key = "clave-de-prueba", e
       ...process.env,
       PORT: "0",                       // lo reemplazamos abajo: node necesita un puerto fijo, buscamos uno libre
       LLM_PROVIDER: provider,
+      LLM_FALLBACK: "",
       GEMINI_API_KEY: provider === "gemini" ? key : "",
       ANTHROPIC_API_KEY: provider === "anthropic" ? key : "",
       GEMINI_BASE_URL: fake.gemini,

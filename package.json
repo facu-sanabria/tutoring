@@ -6,9 +6,9 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node --test test/api.test.mjs test/core.test.mjs",
-    "test:e2e": "node --test test/e2e.test.mjs",
-    "test:todo": "node --test test/api.test.mjs test/core.test.mjs test/e2e.test.mjs",
+    "test": "node --test test/api.test.mjs test/core.test.mjs test/evaluation.test.mjs",
+    "test:e2e": "node --test test/e2e.test.mjs test/evaluation-browser.test.mjs",
+    "test:todo": "node --test test/api.test.mjs test/core.test.mjs test/evaluation.test.mjs test/e2e.test.mjs test/evaluation-browser.test.mjs",
     "demo": "node test/demo-offline.mjs",
     "probar-ia": "node test/probar-ia.mjs"
   },

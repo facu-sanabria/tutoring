@@ -74,7 +74,7 @@ describe("servidor con Gemini", () => {
     const lista = await pedir(app.base, "/api/informes");
     assert.equal(lista.status, 200);
     const fila = lista.cuerpo.find(r => r.id === id);
-    assert.deepEqual(fila, { id, candidato: "Lucas Ferreyra", escenario: "Recordatorios duplicados", fecha: INFORME.fecha, puntaje: 78 });
+    assert.deepEqual(fila, { id, candidato: "Lucas Ferreyra", empresa: INFORME.empresa, escenario: "Recordatorios duplicados", fecha: INFORME.fecha, puntaje: 78 });
 
     const uno = await pedir(app.base, `/api/informes/${id}`);
     assert.equal(uno.status, 200);
@@ -168,7 +168,7 @@ describe("servidor con Gemini", () => {
 
   test("messages: el purpose elige el modelo y el navegador no puede forzarlo", async () => {
     const anteriores = app.fake.calls.length;
-    await pedirMensajes(app.base, { purpose: "eval", model: "modelo-pirata", messages: [{ role: "user", content: "hola" }] });
+    await pedirMensajes(app.base, { purpose: "eval", system: "Sos un evaluador", model: "modelo-pirata", messages: [{ role: "user", content: "hola" }] });
     await pedirMensajes(app.base, { purpose: "chat", messages: [{ role: "user", content: "hola" }] });
     await pedirMensajes(app.base, { purpose: "inventado", messages: [{ role: "user", content: "hola" }] });
     const usados = app.fake.calls.slice(anteriores).map(c => c.payload.model);
@@ -210,7 +210,7 @@ describe("servidor con Gemini", () => {
     await pedirMensajes(app.base, { purpose: "chat", max_tokens: 999999, messages: [{ role: "user", content: "hola" }] });
     await pedirMensajes(app.base, { purpose: "chat", max_tokens: -5, messages: [{ role: "user", content: "hola" }] });
     const tops = app.fake.calls.slice(anteriores).map(c => c.payload.max_tokens);
-    assert.deepEqual(tops, [8192, 64]);
+    assert.deepEqual(tops, [8192 + 4096, 16 + 4096]);
   });
 
   test("messages: mapea los errores de Gemini a mensajes entendibles", async () => {
@@ -223,9 +223,10 @@ describe("servidor con Gemini", () => {
     ];
     for (const [marca, status, re] of casos) {
       const r = await pedirMensajes(app.base, { purpose: "chat", messages: [{ role: "user", content: marca }] });
-      assert.equal(r.status, status, marca);
-      assert.match(r.error.message, re, marca);
-      assert.ok(!/clave-de-prueba/.test(JSON.stringify(r.error)), "el error no puede filtrar la key");
+      const error = r.error || r.eventos.find(e => e.type === "error")?.error;
+      assert.equal(r.status === 200 ? error?.status : r.status, status, marca);
+      assert.match(error.message, re, marca);
+      assert.ok(!/clave-de-prueba/.test(JSON.stringify(error)), "el error no puede filtrar la key");
     }
   });
 
@@ -243,12 +244,10 @@ describe("servidor con Gemini", () => {
     assert.equal(r.texto, "Respuesta sin streaming.");
   });
 
-  test("messages: respuesta bloqueada por filtros avisa por evento error", async () => {
+  test("messages: respuesta bloqueada antes de emitir texto devuelve error", async () => {
     const r = await pedirMensajes(app.base, { purpose: "chat", messages: [{ role: "user", content: "FALLA_VACIO" }] });
-    assert.equal(r.status, 200);
-    const err = r.eventos.find(e => e.type === "error");
-    assert.ok(err, "tiene que haber un evento error");
-    assert.match(err.error.message, /filtros de contenido/i);
+    assert.equal(r.status, 400);
+    assert.match(r.error.message, /filtros de contenido/i);
   });
 
   test("messages: si el stream se corta a mitad, el front se entera", async () => {
@@ -283,7 +282,7 @@ describe("servidor con Claude (anthropic)", () => {
   test("/api/config dice Claude", async () => {
     const { cuerpo } = await pedir(app.base, "/api/config");
     assert.equal(cuerpo.provider, "anthropic");
-    assert.equal(cuerpo.providerName, "Claude");
+    assert.equal(cuerpo.providerName, "Claude (API)");
     assert.equal(cuerpo.keyVar, "ANTHROPIC_API_KEY");
     assert.equal(cuerpo.models.eval, "claude-test-eval");
   });
@@ -308,8 +307,10 @@ describe("servidor con Claude (anthropic)", () => {
 
   test("messages: propaga el error de Claude con su status", async () => {
     const r = await pedirMensajes(app.base, { purpose: "chat", messages: [{ role: "user", content: "FALLA_CUOTA" }] });
-    assert.equal(r.status, 429);
-    assert.match(r.error.message, /exhausted|quota/i);
+    assert.equal(r.status, 200);
+    const error = r.eventos.find(e => e.type === "error")?.error;
+    assert.equal(error?.status, 429);
+    assert.match(error.message, /exhausted|quota/i);
   });
 });
 
