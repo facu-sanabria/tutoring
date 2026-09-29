@@ -107,20 +107,50 @@ Si Playwright no está instalado, esas pruebas se saltean con un aviso en vez de
 
 ## Voz
 
-- Por defecto usa la voz del navegador (`VOICE_PROVIDER=browser`). El reconocimiento de voz de Chrome necesita internet.
+Hay dos motores con la misma interfaz (la app no cambia):
+
+| `VOICE_PROVIDER` | Cómo se siente | Costo |
+|---|---|---|
+| `vapi` (por defecto) | Conversación natural: baja latencia, podés interrumpir al cliente hablando encima | Por minuto de llamada (Vapi) |
+| `browser` | Voz del navegador (Chrome/Edge). Por turnos: hablás, pausa, contesta | Gratis |
+
+Si `VOICE_PROVIDER=vapi` pero falta `VAPI_PUBLIC_KEY`, la app usa la voz del navegador y lo avisa en la pantalla previa a la llamada. Si Vapi falla al arrancar (key inválida, sin crédito, sin internet), la llamada muestra el motivo y un botón **Seguir con la voz del navegador**.
+
+### Vapi: cómo configurarlo
+
+1. Creá una cuenta en https://dashboard.vapi.ai (se puede entrar con Google).
+2. En el panel, andá a **API Keys** (en el menú de la organización) y copiá la **Public Key**. No uses la Private Key: esa nunca va en el `.env` de esta app.
+3. Si la public key tiene restricción de orígenes, agregá `http://localhost:3000`.
+4. En el `.env`:
+   ```
+   VOICE_PROVIDER=vapi
+   VAPI_PUBLIC_KEY=tu-public-key
+   ```
+5. Reiniciá el servidor. En la terminal tiene que aparecer `Voz: vapi · modelo anthropic/claude-haiku-4-5-20251001 · voces es-AR-ElenaNeural / es-AR-TomasNeural…`.
+
+**Qué se cobra:** Vapi cobra por minuto de llamada: una tarifa de plataforma más lo que cuesta cada proveedor que usa (transcripción, modelo y voz). Con la configuración por defecto, cada minuto suele costar unos pocos centavos de dólar. El precio exacto y el saldo se ven en el panel de Vapi (**Billing**). Las cuentas nuevas suelen traer algo de crédito de prueba. Una simulación de 4 o 5 minutos gasta 4 o 5 minutos.
+
+**Qué corre dónde:**
+- El cliente simulado (el modelo que habla) corre dentro de Vapi con `VAPI_MODEL` y lo paga tu cuenta de Vapi: no usa tu plan de Claude.
+- La **evaluación** y el informe los hace nuestro servidor con el proveedor de IA del `.env`.
+- La public key llega al navegador (es pública por diseño). La private key nunca se usa.
+
+**Cómo probarlo:**
+1. Perfil Estudiante → elegí un escenario. La pantalla previa dice "Voz natural con Vapi".
+2. Empezá la conversación y aceptá el permiso del micrófono.
+3. El cliente habla primero. Respondele con naturalidad; probá interrumpirlo hablando encima (o tocando la esfera).
+4. Despedite: cuando el cliente también se despide, la llamada se corta sola y aparece el informe. También podés tocar **Colgar**.
+
+Variables para ajustar (todas opcionales): `VAPI_MODEL_PROVIDER` / `VAPI_MODEL` (modelo del cliente), `VAPI_VOICE_FEMENINA` / `VAPI_VOICE_MASCULINA` (voces de Azure; la voz se elige según el nombre del cliente del escenario), `VAPI_TRANSCRIBER` / `VAPI_TRANSCRIBER_MODEL` / `VAPI_LANGUAGE` (transcripción), `VAPI_ASSISTANT_ID` (usar un asistente creado en el panel, al que se le reemplazan las instrucciones por las del escenario).
+
+El SDK de Vapi se sirve desde `public/vendor/vapi/` (copia fija de `@vapi-ai/web` 2.7.1), así la demo no depende de un CDN. Al conectar, el SDK igual necesita internet (Vapi y Daily, su proveedor de audio).
+
+### Voz del navegador
+
+- El reconocimiento de voz de Chrome necesita internet.
 - Edge suele tener voces en español más naturales (por ejemplo, "Elena" o "Tomás", de Argentina). Se elige en la pantalla previa a la llamada, con el botón **Probar voz**.
-- Si el micrófono falla o el navegador no reconoce voz, la app lo avisa y abre sola el cuadro para escribir. También se puede abrir con el botón del teclado.
-- Si el navegador no está leyendo en voz alta (volumen bajo, sin voces en español instaladas), la llamada sigue igual: lo que dice el cliente se ve como subtítulo.
-
-### Pasar a Vapi (a futuro)
-
-`public/js/voice.js` tiene las dos implementaciones con la misma interfaz. Para usar Vapi:
-
-1. Creá una cuenta en Vapi y copiá tu **public key**.
-2. En el `.env`: `VOICE_PROVIDER=vapi` y `VAPI_PUBLIC_KEY=...` (opcional: `VAPI_ASSISTANT_ID`).
-3. Reiniciá el servidor.
-
-La integración con Vapi quedó preparada pero **nunca se ejecutó**: revisala antes de usarla en una demo. Ojo con dos cosas: Vapi elige su propio modelo y su propia voz (no los del `.env` del servidor), y la key pública de Vapi sí llega al navegador (es pública por diseño, a diferencia de la key del proveedor de IA).
+- Si el micrófono falla o el navegador no reconoce voz, la app lo avisa y abre sola el cuadro para escribir.
+- Si el navegador no está leyendo en voz alta, la llamada sigue igual: lo que dice el cliente se ve como subtítulo.
 
 ## Seguridad
 
