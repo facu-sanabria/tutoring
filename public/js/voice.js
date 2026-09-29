@@ -1,10 +1,10 @@
 /* Motor de voz.
    Hay dos implementaciones con la MISMA interfaz, así la app no cambia:
      - "browser": voz del navegador (reconocimiento + síntesis de Chrome/Edge) y la IA vía /api/messages.
-     - "vapi":    Vapi (a futuro). Se activa con VOICE_PROVIDER=vapi en el .env.
+     - "vapi":    Vapi (conversación natural, con interrupciones). VOICE_PROVIDER=vapi y VAPI_PUBLIC_KEY en el .env.
 
    Interfaz:
-     const engine = T.voice.create(provider, { voiceName, vapiPublicKey, vapiAssistantId });
+     const engine = T.voice.create(provider, { voiceName, vapiPublicKey, vapiAssistantId, vapi, escenario });
      engine.start({ system, firstUserTurn, onEvent })
      engine.sendText(texto)     // escribir en vez de hablar
      engine.interrupt()         // cortar al cliente y pasar a escuchar
@@ -450,92 +450,253 @@ T.voice = (function () {
   }
 
   // ---------------------------------------------------------------------------
-  // Implementación con Vapi (preparada para el futuro, SIN PROBAR).
-  // Requiere VOICE_PROVIDER=vapi y VAPI_PUBLIC_KEY en el .env.
-  // Vapi maneja el micrófono, la transcripción, el modelo y la voz; nosotros
-  // le pasamos las mismas instrucciones del escenario y recibimos la transcripción.
+  // Implementación con Vapi (VOICE_PROVIDER=vapi y VAPI_PUBLIC_KEY en el .env).
+  // Vapi maneja el micrófono, la transcripción, el modelo del cliente y la voz, con
+  // interrupciones y baja latencia. Nosotros le pasamos las instrucciones del escenario
+  // y recibimos la transcripción; la EVALUACIÓN la hace nuestro servidor.
+  // El SDK se sirve desde /vendor (sin build ni CDN); si ese archivo faltara, se prueba esm.sh.
   // ---------------------------------------------------------------------------
+  const VAPI_LOCAL = "/vendor/vapi/vapi-web-2.7.1.mjs";
+  const VAPI_CDN = "https://esm.sh/@vapi-ai/web@2.7.1";
+  let vapiClase = null;
+  async function cargarVapi() {
+    if (vapiClase) return vapiClase;
+    let mod;
+    try { mod = await import(VAPI_LOCAL); }
+    catch (_) { mod = await import(VAPI_CDN); }
+    let C = mod.default || mod.Vapi;
+    if (C && typeof C !== "function" && C.default) C = C.default;
+    if (typeof C !== "function") throw new Error("El SDK de Vapi no exporta la clase esperada.");
+    vapiClase = C;
+    return C;
+  }
+  // Permite probar la integración con un Vapi simulado (sin key ni créditos).
+  function setVapiClase(C) { vapiClase = C; }
+
+  // Voz femenina o masculina según el escenario (campo "voz") o el nombre del cliente.
+  function generoCliente(esc) {
+    const v = String((esc && esc.voz) || "").toLowerCase();
+    if (v.startsWith("f")) return "f";
+    if (v.startsWith("m")) return "m";
+    const nombre = String((esc && esc.cliente) || "").trim().split(/[\s,]+/)[0].toLowerCase();
+    const masculinosEnA = ["luca", "nicola", "andrea", "joshua", "elias", "matias", "tobias", "jonas", "lucas", "tomas"];
+    if (masculinosEnA.includes(nombre)) return "m";
+    return /a$/.test(nombre) ? "f" : "m";
+  }
+
+  function mensajeErrorVapi(e) {
+    const bruto = e && (e.error && (e.error.message || e.error.msg || e.error.errorMsg) || e.errorMsg || e.message || (typeof e.error === "string" ? e.error : "")) || "";
+    const msg = typeof bruto === "string" ? bruto : JSON.stringify(bruto);
+    const status = e && (e.status || (e.error && (e.error.statusCode || e.error.status)));
+    if (status === 401 || status === 403 || /unauthori|invalid key|forbidden|public key/i.test(msg)) return "Vapi rechazó la VAPI_PUBLIC_KEY del .env. Copiá la PUBLIC key (no la private) del panel de Vapi y reiniciá el servidor.";
+    if (status === 402 || /credit|balance|payment|insufficient/i.test(msg)) return "Tu cuenta de Vapi no tiene crédito suficiente. Cargá crédito en el panel de Vapi.";
+    if (/permission|notallowed|microphone|getusermedia/i.test(msg)) return "El navegador bloqueó el micrófono. Permitilo en el candado de la barra de direcciones.";
+    if (/network|fetch|websocket|connection|daily/i.test(msg)) return "No se pudo conectar con Vapi. Revisá la conexión a internet.";
+    return "Error de Vapi" + (msg ? ": " + msg.slice(0, 200) : ".");
+  }
+
   function VapiEngine(opts = {}) {
     const self = this;
     this.history = [];
-    let vapi = null, emit = () => {}, ended = false, state = "idle";
+    let vapi = null, emit = () => {}, ended = false, state = "idle", muted = false, conectado = false;
+    let rolActual = null, textoActual = "", parcial = "";      // turno que se está armando
+    let finPendiente = false, silenciado = false, finTimer = null, cierreTimer = null;
+    let media = null, audioCtx = null, raf = 0;
 
     Object.defineProperty(this, "state", { get: () => state });
-    const setState = s => { state = s; emit({ type: "state", state: s }); };
+    const setState = s => { if (ended && s !== "ended") return; if (state === s) return; state = s; emit({ type: "state", state: s }); };
+    const aviso = (message, extra) => emit(Object.assign({ type: "error", message, fatal: false }, extra || {}));
     const agregar = (role, content) => {
       const last = self.history[self.history.length - 1];
       if (last && last.role === role) last.content += "\n\n" + content;
       else self.history.push({ role, content });
     };
 
-    this.start = async function ({ system, firstUserTurn, onEvent }) {
-      emit = onEvent || emit;
-      setState("connecting");
-      if (!opts.vapiPublicKey) {
-        emit({ type: "error", message: "Falta VAPI_PUBLIC_KEY en el .env. Volvé a VOICE_PROVIDER=browser o cargá la key.", fatal: true });
-        return;
-      }
-      try {
-        const mod = await import("https://esm.sh/@vapi-ai/web");
-        const Vapi = mod.default || mod.Vapi;
-        vapi = new Vapi(opts.vapiPublicKey);
-      } catch (e) {
-        emit({ type: "error", message: "No se pudo cargar Vapi. Revisá la conexión o volvé a VOICE_PROVIDER=browser.", fatal: true });
-        return;
-      }
-      vapi.on("call-start", () => setState("listening"));
-      vapi.on("speech-start", () => setState("speaking"));
-      vapi.on("speech-end", () => setState("listening"));
-      vapi.on("volume-level", v => emit({ type: "level", value: Number(v) || 0 }));
-      vapi.on("message", msg => {
-        if (!msg || msg.type !== "transcript") return;
-        const role = msg.role === "user" ? "user" : "assistant";
-        const texto = String(msg.transcript || "").trim();
-        if (msg.transcriptType === "final") {
-          if (!texto) return;
-          agregar(role, texto);
-          emit({ type: "turn", role, text: texto });
-          emit({ type: role === "user" ? "interim" : "partial", text: "" });
-        } else {
-          emit({ type: role === "user" ? "interim" : "partial", text: texto });
-        }
-      });
-      vapi.on("error", e => emit({ type: "error", message: "Error de Vapi: " + ((e && e.message) || "desconocido"), fatal: false }));
-      vapi.on("call-end", () => self.stop("fin"));
-
-      // Asistente armado en el momento con las instrucciones del escenario.
-      // Si preferís un asistente creado en el panel de Vapi, poné VAPI_ASSISTANT_ID en el .env.
-      // Ojo: el modelo lo elige Vapi, no el .env del servidor.
-      const armado = {
-        firstMessageMode: "assistant-speaks-first-with-model-generated-message",
-        model: {
-          provider: opts.vapiModelProvider || "anthropic",
-          model: opts.vapiModel || "claude-sonnet-5",
-          messages: [{ role: "system", content: String(system || "") + "\n\n" + String(firstUserTurn || "") }]
-        },
-        transcriber: { provider: "deepgram", language: "es" },
-        voice: { provider: "azure", voiceId: "es-AR-ElenaNeural" },
-        endCallPhrases: ["[FIN]", "hasta luego"]
-      };
-      try {
-        if (opts.vapiAssistantId) await vapi.start(opts.vapiAssistantId, { model: { messages: [{ role: "system", content: String(system || "") }] } });
-        else await vapi.start(armado);
-      } catch (e) {
-        emit({ type: "error", message: "Vapi no pudo iniciar la llamada: " + ((e && e.message) || "error desconocido"), fatal: true });
-      }
-    };
-    this.sendText = function (text) {
-      const t = String(text || "").trim();
-      if (!vapi || !t) return;
-      try { vapi.send({ type: "add-message", message: { role: "user", content: t } }); } catch (_) {}
-      agregar("user", t);
-      emit({ type: "turn", role: "user", text: t });
-    };
-    this.interrupt = function () { /* Vapi corta al asistente solo cuando detecta voz */ };
-    this.setMuted = function (m) { if (vapi) { try { vapi.setMuted(Boolean(m)); } catch (_) {} } };
-    this.stop = function (reason = "user") {
+    // Vapi manda la transcripción en pedazos: juntamos los finales de cada rol en un solo turno.
+    function cerrarTurno() {
+      const texto = textoActual.trim();
+      const rol = rolActual;
+      rolActual = null; textoActual = ""; parcial = "";
+      if (!texto || !rol) return;
+      const limpio = rol === "assistant" ? speakable(texto) : texto;
+      if (!limpio) return;
+      agregar(rol, limpio);
+      emit({ type: "turn", role: rol, text: limpio });
+      emit({ type: rol === "user" ? "interim" : "partial", text: rol === "user" ? "" : limpio });
+    }
+    function transcripcion(msg) {
+      const role = msg.role === "user" ? "user" : "assistant";
+      const texto = String(msg.transcript || "").trim();
+      if (rolActual && rolActual !== role) cerrarTurno();
+      rolActual = role;
+      if (msg.transcriptType === "final") {
+        if (texto) textoActual += (textoActual ? " " : "") + texto;
+        parcial = "";
+        if (role === "user" && silenciado) { silenciado = false; enviar({ type: "control", control: "unmute-assistant" }); }
+      } else parcial = texto;
+      const visible = (textoActual + " " + parcial).trim();
+      if (role === "user") emit({ type: "interim", text: visible });
+      else emit({ type: "partial", text: speakable(visible) });
+    }
+    // El modelo escribe [FIN] al despedirse: no se dice en voz alta (lo saca el formatPlan)
+    // pero lo detectamos para cortar cuando termina de hablar.
+    function revisarFin(texto) {
+      if (!finPendiente && /\[\s*FIN\s*\]/i.test(String(texto || ""))) finPendiente = true;
+    }
+    function enviar(m) { try { vapi && vapi.send(m); } catch (_) {} }
+    // No se pudo arrancar: liberamos el micrófono y avisamos (la app ofrece seguir con la voz del navegador).
+    function fallarInicio(message) {
       if (ended) return;
       ended = true;
+      pararMedidor();
+      if (vapi) { try { vapi.stop(); } catch (_) {} }
+      emit({ type: "error", message, fatal: true, code: "vapi_inicio" });
+    }
+
+    async function medirMicrofono() {
+      try {
+        media = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true } });
+        audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        const an = audioCtx.createAnalyser(); an.fftSize = 512;
+        audioCtx.createMediaStreamSource(media).connect(an);
+        const buf = new Uint8Array(an.fftSize);
+        const tick = () => {
+          if (ended) return;
+          an.getByteTimeDomainData(buf);
+          let sum = 0; for (let i = 0; i < buf.length; i++) { const x = (buf[i] - 128) / 128; sum += x * x; }
+          emit({ type: "level", value: state === "listening" && !muted ? Math.min(1, Math.sqrt(sum / buf.length) * 4) : 0 });
+          raf = requestAnimationFrame(tick);
+        };
+        tick();
+      } catch (_) { /* sin medidor: la esfera no late, la llamada sigue igual */ }
+    }
+    function pararMedidor() {
+      cancelAnimationFrame(raf); raf = 0;
+      if (media) media.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+      if (audioCtx) audioCtx.close().catch(() => {});
+      media = null; audioCtx = null;
+    }
+
+    function asistente(system, firstUserTurn) {
+      const v = opts.vapi || {};
+      const femenina = generoCliente(opts.escenario) === "f";
+      const minutos = Number(opts.escenario && opts.escenario.duracion) || 5;
+      const instrucciones = String(system || "")
+        + "\n\nPARA EMPEZAR\n" + String(firstUserTurn || "Hablá vos primero, corto.").replace(/^\[|\]$/g, "")
+        + "\n\nPARA TERMINAR\nDespués de despedirte y escribir [FIN], usá la herramienta endCall para cortar.";
+      return {
+        name: "Tutoring - cliente simulado",
+        firstMessageMode: "assistant-speaks-first-with-model-generated-message",
+        model: {
+          provider: v.modelProvider || "anthropic",
+          model: v.model || "claude-haiku-4-5-20251001",
+          temperature: 0.7,
+          maxTokens: 250,
+          messages: [{ role: "system", content: instrucciones }],
+          tools: [{ type: "endCall" }]
+        },
+        voice: {
+          provider: v.voiceProvider || "azure",
+          voiceId: femenina ? (v.voiceFemenina || "es-AR-ElenaNeural") : (v.voiceMasculina || "es-AR-TomasNeural"),
+          chunkPlan: { enabled: true, formatPlan: { enabled: true, replacements: [{ type: "exact", key: "[FIN]", value: "", replaceAllEnabled: true }] } }
+        },
+        transcriber: {
+          provider: v.transcriber || "deepgram",
+          model: v.transcriberModel || "nova-3",
+          language: v.language || "es"
+        },
+        backgroundDenoisingEnabled: true,
+        silenceTimeoutSeconds: 45,
+        maxDurationSeconds: Math.min(1800, minutos * 60 + 180)
+      };
+    }
+
+    this.start = async function ({ system, firstUserTurn, onEvent }) {
+      emit = onEvent || emit;
+      ended = false; finPendiente = false; self.history = [];
+      setState("connecting");
+      if (!opts.vapiPublicKey) {
+        fallarInicio("Falta VAPI_PUBLIC_KEY en el .env. Cargala y reiniciá el servidor, o usá VOICE_PROVIDER=browser.");
+        return;
+      }
+      let Vapi;
+      try { Vapi = await cargarVapi(); }
+      catch (e) { fallarInicio("No se pudo cargar el SDK de Vapi. Revisá la conexión a internet."); return; }
+      if (ended) return;
+      try { vapi = new Vapi(opts.vapiPublicKey); }
+      catch (e) { fallarInicio(mensajeErrorVapi(e)); return; }
+
+      vapi.on("call-start", () => { conectado = true; setState("listening"); });
+      vapi.on("speech-start", () => { if (rolActual === "user") cerrarTurno(); setState("speaking"); });
+      vapi.on("speech-end", () => {
+        setState("listening");
+        // El texto final del cliente puede llegar un instante después del audio: esperamos un poco para cerrar su turno.
+        clearTimeout(cierreTimer);
+        cierreTimer = setTimeout(() => { if (rolActual === "assistant") cerrarTurno(); }, 500);
+        if (finPendiente) { clearTimeout(finTimer); finTimer = setTimeout(() => self.stop("fin"), 700); }
+      });
+      vapi.on("message", msg => {
+        if (!msg || ended) return;
+        if (msg.type === "transcript" || /^transcript/.test(msg.type || "")) return transcripcion(msg);
+        if (msg.type === "model-output") return revisarFin(typeof msg.output === "string" ? msg.output : JSON.stringify(msg.output || ""));
+        if (msg.type === "conversation-update") {
+          const ms = msg.messagesOpenAIFormatted || msg.messages || [];
+          const ult = ms.filter(m => m && (m.role === "assistant" || m.role === "bot")).pop();
+          if (ult) revisarFin(ult.content || ult.message);
+          return;
+        }
+        if (msg.type === "speech-update" && msg.role === "user" && msg.status === "stopped" && state === "listening") setState("thinking");
+        if (msg.type === "hang") self.stop("fin");
+      });
+      vapi.on("error", e => {
+        const m = mensajeErrorVapi(e);
+        if (!conectado) { fallarInicio(m); return; }
+        aviso(m);
+      });
+      vapi.on("call-end", () => {
+        if (ended) return;
+        if (conectado) self.stop("fin");
+        else fallarInicio("Vapi cortó la llamada antes de conectarse. Revisá la key y el crédito en el panel de Vapi.");
+      });
+
+      medirMicrofono();
+      try {
+        if (opts.vapiAssistantId) {
+          // Asistente creado en el panel de Vapi: le cambiamos las instrucciones por las del escenario.
+          const a = asistente(system, firstUserTurn);
+          await vapi.start(opts.vapiAssistantId, { model: a.model, firstMessageMode: a.firstMessageMode });
+        } else {
+          await vapi.start(asistente(system, firstUserTurn));
+        }
+      } catch (e) {
+        fallarInicio(mensajeErrorVapi(e));
+      }
+    };
+
+    this.sendText = function (text) {
+      const t = String(text || "").trim();
+      if (!vapi || !t || ended) return;
+      if (rolActual) cerrarTurno();
+      enviar({ type: "add-message", message: { role: "user", content: t }, triggerResponseEnabled: true });
+      agregar("user", t);
+      emit({ type: "turn", role: "user", text: t });
+      setState("thinking");
+    };
+    // Corta al cliente mientras habla: silenciamos al asistente hasta que vuelvas a hablar.
+    this.interrupt = function () {
+      if (ended || !vapi || (state !== "speaking" && state !== "thinking")) return;
+      enviar({ type: "control", control: "mute-assistant" });
+      silenciado = true;
+      if (rolActual === "assistant") cerrarTurno();
+      setState("listening");
+    };
+    this.setMuted = function (m) { muted = Boolean(m); if (vapi) { try { vapi.setMuted(muted); } catch (_) {} } };
+    this.stop = function (reason = "user") {
+      if (ended) return;
+      cerrarTurno();
+      ended = true;
+      clearTimeout(finTimer); clearTimeout(cierreTimer);
+      pararMedidor();
       if (vapi) { try { vapi.stop(); } catch (_) {} }
       state = "ended";
       emit({ type: "state", state: "ended" });
@@ -547,5 +708,5 @@ T.voice = (function () {
     return provider === "vapi" ? new VapiEngine(opts) : new BrowserEngine(opts);
   }
 
-  return { create, support, spanishVoices, onVoicesReady };
+  return { create, support, spanishVoices, onVoicesReady, setVapiClase, generoCliente };
 })();
