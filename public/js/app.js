@@ -141,7 +141,8 @@
     if (fn) fn(view);
   }
 
-  // Indicador de la barra superior: qué proveedor de IA está respondiendo.
+  // Estado del proveedor de IA: no se muestra en pantalla, solo en la consola.
+  let ultimoEstadoIA = "";
   function renderTop() {
     $("viewLabel").textContent = VIEW_LABEL[S.view] || "";
     const st = $("status"); st.replaceChildren();
@@ -149,13 +150,14 @@
     const ia = S.server.ia || {};
     const ok = S.server.hasKey;
     const respaldoEnUso = ok && (S.usandoRespaldo || (ia.principal && !ia.principal.listo));
-    st.className = "status" + (ok ? (respaldoEnUso ? " warn" : "") : " bad");
     let texto;
     if (!ok) texto = S.server.problema || `Falta ${S.server.keyVar || "la API key"} en .env`;
     else if (respaldoEnUso) texto = `IA de respaldo · ${S.server.providerName || "IA"}`;
     else texto = `IA conectada · ${S.server.providerName || "IA"}` + (ia.respaldo ? ` · respaldo ${ia.respaldo.nombre}` : "");
-    st.title = "Tocá para probar la conexión con la IA";
-    st.append(h("i"), texto);
+    if (texto !== ultimoEstadoIA) {
+      ultimoEstadoIA = texto;
+      (ok ? (respaldoEnUso ? console.warn : console.info) : console.error)("[IA] " + texto);
+    }
   }
 
   // Diagnóstico: prueba de verdad el proveedor principal y el de respaldo.
