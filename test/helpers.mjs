@@ -25,6 +25,8 @@ export async function startApp({ provider = "gemini", key = "clave-de-prueba", e
       ANTHROPIC_API_KEY: provider === "anthropic" ? key : "",
       GEMINI_BASE_URL: fake.gemini,
       ANTHROPIC_BASE_URL: fake.anthropic,
+      GEMINI_LIVE_BASE_URL: fake.live,
+      GEMINI_LIVE_MODEL: "gemini-test-live",
       GEMINI_MODEL: "gemini-test-chat",
       GEMINI_MODEL_VOICE: "gemini-test-voz",
       GEMINI_MODEL_EVAL: "gemini-test-eval",

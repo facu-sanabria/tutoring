@@ -69,7 +69,7 @@ public/css/styles.css
 public/js/core.js       lógica pura y testeable (historial, evaluación, puntaje, voz)
 public/js/defaults.js   empresa de ejemplo (Nodo Software)
 public/js/prompts.js    instrucciones que recibe la IA en cada modo
-public/js/voice.js      motor de voz (navegador o Vapi)
+public/js/voice.js      motor de voz (Gemini Live, Vapi o navegador)
 public/js/api.js        llamadas al servidor
 public/js/app.js        interfaz
 test/                   pruebas automatizadas y utilidades de prueba
@@ -91,7 +91,7 @@ npm run test:e2e   # recorrido completo en un navegador de verdad
 npm run test:todo  # todo junto
 ```
 
-Ninguna prueba usa la API real: todas hablan con la IA falsa de `test/fake-llm.mjs`.
+Ninguna prueba usa la API real: todas hablan con la IA falsa de `test/fake-llm.mjs`. La llamada con Gemini Live (`test/voz-gemini.test.mjs`) reemplaza el WebSocket de Google por uno falso que habla el mismo protocolo (audio, transcripciones, interrupciones, colgar) y usa el micrófono falso de Chromium.
 
 `npm test` cubre las rutas del servidor (config, empresa, informes, messages), la traducción del streaming de Gemini al formato de eventos de Claude, el mapeo de errores, path traversal, límites de tamaño, y la lógica de `core.js` (historial que se manda a la IA, parseo del JSON de evaluación, puntaje ponderado, corte de oraciones para la voz).
 
@@ -107,14 +107,52 @@ Si Playwright no está instalado, esas pruebas se saltean con un aviso en vez de
 
 ## Voz
 
-Hay dos motores con la misma interfaz (la app no cambia):
+Hay tres motores con la misma interfaz (la app no cambia):
 
 | `VOICE_PROVIDER` | Cómo se siente | Costo |
 |---|---|---|
-| `vapi` (por defecto) | Conversación natural: baja latencia, podés interrumpir al cliente hablando encima | Por minuto de llamada (Vapi) |
+| `gemini-live` (por defecto) | Voz a voz nativa: el modelo escucha y habla directo, sin pasar por texto. Entona, reacciona, usa muletillas y se lo interrumpe hablando encima | Gratis con el plan gratuito de Gemini; pago: ~US$ 0,02 por minuto |
+| `vapi` | Cadena voz → texto → IA → voz. Natural y con interrupciones, pero se nota más "leído" | Por minuto de llamada (Vapi) |
 | `browser` | Voz del navegador (Chrome/Edge). Por turnos: hablás, pausa, contesta | Gratis |
 
-Si `VOICE_PROVIDER=vapi` pero falta `VAPI_PUBLIC_KEY`, la app usa la voz del navegador y lo avisa en la pantalla previa a la llamada. Si Vapi falla al arrancar (key inválida, sin crédito, sin internet), la llamada muestra el motivo y un botón **Seguir con la voz del navegador**.
+Si el motor elegido no está configurado (falta su key), la app usa el siguiente que sí lo esté (Gemini Live → Vapi → navegador) y lo avisa en la pantalla previa a la llamada. Si falla al conectar (key inválida, cuota agotada, sin crédito, sin internet), la llamada muestra el motivo y un botón **Seguir con otra voz**.
+
+### Gemini Live: cómo activarlo
+
+1. Necesitás una `GEMINI_API_KEY` (la misma que usa la IA de texto). Se crea gratis en https://aistudio.google.com/apikey.
+2. En el `.env`:
+   ```
+   VOICE_PROVIDER=gemini-live
+   GEMINI_API_KEY=tu-key
+   GEMINI_LIVE_MODEL=gemini-3.8-live
+   GEMINI_LIVE_VOICE=auto
+   ```
+3. Reiniciá el servidor. En la terminal tiene que aparecer `Voz: gemini-live · modelo gemini-3.8-live · voz Kore / Orus (voz a voz nativa)`.
+4. Usá **Chrome o Edge** y, si podés, **auriculares**: con parlantes, el cancelador de eco del navegador suele alcanzar, pero si el cliente "se interrumpe solo" es porque el micrófono escucha su propia voz.
+
+**Voces:** con `GEMINI_LIVE_VOICE=auto` se elige femenina (`Kore`) o masculina (`Orus`) según el campo "Voz del cliente" del escenario o el nombre del cliente. Se pueden cambiar con `GEMINI_LIVE_VOICE_FEMENINA` / `GEMINI_LIVE_VOICE_MASCULINA`, o fijar una sola con `GEMINI_LIVE_VOICE=Aoede` (otras: Leda, Zephyr, Puck, Charon, Fenrir; se escuchan en https://aistudio.google.com/live). Todas hablan español: el acento rioplatense lo da la consigna del escenario.
+
+**Cómo funciona:**
+- El servidor genera un **token efímero** en `POST /api/voz/token` (un solo uso, 1 minuto para conectarse, 30 minutos de vida, atado a `GEMINI_LIVE_MODEL`). La `GEMINI_API_KEY` nunca llega al navegador.
+- El navegador se conecta directo a Google por WebSocket con ese token: el audio no pasa por nuestro servidor. El micrófono se manda en PCM 16 kHz (AudioWorklet) y la respuesta llega en PCM 24 kHz, que se reproduce encadenada para que no se corte.
+- La consigna del escenario va como instrucción de sistema y el cliente habla primero. Gemini detecta solo cuándo terminaste de hablar; si hablás encima, corta el audio del cliente al instante (también tocando la esfera).
+- Gemini transcribe los dos lados: esa transcripción es la que ve el estudiante y la que se evalúa al final, igual que con los otros motores.
+- Para cortar, el cliente se despide y llama a la herramienta `colgar` (el equivalente hablado de `[FIN]`); también se corta con **Colgar**.
+- Google corta cada conexión a los ~10 minutos: la app la retoma sola (session resumption) sin perder la conversación.
+
+**Plan gratuito y costo:**
+- Con el plan gratuito de la API de Gemini, `gemini-3.8-live` no cobra ni la entrada ni la salida. Los límites del plan gratuito (sesiones simultáneas, pedidos por minuto y por día) dependen del proyecto y Google no los publica fijos para Live: se ven en AI Studio → **Rate limits**. Si se agotan, la llamada lo explica y ofrece **Seguir con otra voz**.
+- **Ojo:** en el plan gratuito Google puede usar lo que se manda para mejorar sus productos. Por eso, en el plan gratuito no cargues datos reales de personas ni de clientes.
+- En el plan pago, Google cobra el audio por minuto: US$ 0,005 por minuto de audio que escucha y US$ 0,018 por minuto de audio que habla. Como el micrófono se transmite toda la llamada y el cliente habla más o menos la mitad del tiempo, da **~US$ 0,015 a 0,025 por minuto**: una simulación de 5 minutos sale unos 10 centavos de dólar. (Precios de octubre de 2026: https://ai.google.dev/gemini-api/docs/pricing.)
+
+**Latencia medida** (fin de la frase del estudiante → el cliente empieza a hablar; mismo escenario y mismo audio de estudiante, Chrome, 6 mediciones por motor, octubre de 2026):
+
+| Motor | Mediana | Rango |
+|---|---|---|
+| Gemini Live (`gemini-3.8-live`) | ~1,1 s | 0,8 a 2,2 s |
+| Vapi (Deepgram + Claude Haiku + Azure) | ~1,4 s sin superposición (~2 s contando todas) | 0,8 a 2,5 s |
+
+La diferencia de latencia es chica; lo que cambia es cómo suena. En las pruebas, Vapi cortaba al cliente en pedazos (15 a 19 líneas de transcripción contra 6 de Gemini) y dos veces arrancó a hablar encima del estudiante; Gemini respetó los turnos y contestó con muletillas y reacciones ("Mirá, hace como dos semanas…, viste", "Ah, bueno, menos mal").
 
 ### Vapi: cómo configurarlo
 
@@ -155,6 +193,7 @@ El SDK de Vapi se sirve desde `public/vendor/vapi/` (copia fija de `@vapi-ai/web
 ## Seguridad
 
 - Las API keys del proveedor de IA viven solo en el `.env` del servidor: el navegador nunca las ve. `/api/config` solo informa si hay key cargada y cómo se llama la variable.
+- Para Gemini Live, el navegador recibe solo un token efímero de un uso que vence en 30 minutos y sirve únicamente para el modelo de `GEMINI_LIVE_MODEL`.
 - El `.env` y los datos están en `.gitignore`.
 - El servidor escucha solo en `127.0.0.1` (no queda expuesto en la red).
 - Los datos de los informes son de ejemplo: no cargues datos reales de personas.

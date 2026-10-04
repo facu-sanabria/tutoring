@@ -274,12 +274,15 @@
 
     if (!S.server.hasKey) col.append(h("div", { class: "notice red", text: S.server.problema || `Falta la API key: pegala en el archivo .env (${S.server.keyVar || "API key"}) y reiniciá el servidor.` }));
     if (!S.cfg.criterios.length) col.append(h("div", { class: "notice red", text: "No hay criterios de evaluación cargados: la simulación va a funcionar, pero no se puede armar el informe. Cargalos en Empresa → Criterios." }));
-    if (motorDeVoz() !== "vapi" && !sup.stt) col.append(h("div", { class: "notice", text: "Este navegador no reconoce voz: vas a poder escribir tus respuestas. Para hablar, usá Chrome o Edge." }));
-    if (motorDeVoz() !== "vapi" && !sup.tts) col.append(h("div", { class: "notice", text: "Este navegador no puede leer en voz alta: vas a ver lo que dice el cliente como texto." }));
+    if (motorDeVoz() === "browser" && !sup.stt) col.append(h("div", { class: "notice", text: "Este navegador no reconoce voz: vas a poder escribir tus respuestas. Para hablar, usá Chrome o Edge." }));
+    if (motorDeVoz() === "browser" && !sup.tts) col.append(h("div", { class: "notice", text: "Este navegador no puede leer en voz alta: vas a ver lo que dice el cliente como texto." }));
 
-    if (S.server.voice.provider === "vapi" && !S.server.voice.vapiPublicKey) col.append(h("div", { class: "notice", text: "Falta VAPI_PUBLIC_KEY en el .env: esta simulación usa la voz del navegador. Para la conversación natural con Vapi, cargá la key y reiniciá el servidor." }));
+    const vozCfg = S.server.voice || {};
+    if (vozCfg.provider === "gemini-live" && !(vozCfg.geminiLive && vozCfg.geminiLive.disponible)) col.append(h("div", { class: "notice", text: `Falta GEMINI_API_KEY en el .env: esta simulación usa ${motorDeVoz() === "vapi" ? "Vapi" : "la voz del navegador"}. Para la voz natural con Gemini Live, cargá la key y reiniciá el servidor.` }));
+    if (vozCfg.provider === "vapi" && !vozCfg.vapiPublicKey) col.append(h("div", { class: "notice", text: "Falta VAPI_PUBLIC_KEY en el .env: esta simulación usa la voz del navegador. Para la conversación natural con Vapi, cargá la key y reiniciá el servidor." }));
+    if (motorDeVoz() === "gemini-live") col.append(h("p", { class: "muted", text: "Voz natural con Gemini Live: podés interrumpir al cliente hablando encima. Con auriculares suena mejor." }));
     if (motorDeVoz() === "vapi") col.append(h("p", { class: "muted", text: "Voz natural con Vapi: podés interrumpir al cliente hablando encima." }));
-    if (motorDeVoz() !== "vapi") {
+    if (motorDeVoz() === "browser") {
       const sel = h("select", { id: "voiceSel", "aria-label": "Voz del cliente", onchange: ev => { S.voiceName = ev.target.value; store.set("tutoring.voice", S.voiceName); } });
       const test = h("button", { class: "btn-o", onclick: () => {
         if (!("speechSynthesis" in window)) return;
@@ -352,6 +355,7 @@
       vapiPublicKey: S.server.voice.vapiPublicKey,
       vapiAssistantId: S.server.voice.vapiAssistantId,
       vapi: S.server.voice.vapi,
+      geminiLive: S.server.voice.geminiLive,
       escenario: e
     });
     S.engine = engine;
@@ -375,11 +379,13 @@
           break;
         case "error":
           note.hidden = false; note.textContent = ev.message;
-          // Vapi no pudo arrancar: ofrecemos seguir con la voz del navegador para no frenar la demo.
-          if (ev.code === "vapi_inicio") {
-            note.append(" ", h("button", { class: "btn-o", style: "margin-top:8px", onclick: () => {
-              S.vozForzada = "browser"; endCallSilently(); go("call", { id: e.id });
-            } }, "Seguir con la voz del navegador"));
+          // El motor de voz no pudo arrancar: ofrecemos seguir con el siguiente para no frenar la demo.
+          if (ev.code === "voz_inicio" || ev.code === "vapi_inicio") {
+            const lista = motoresDeVoz();
+            const otro = lista[lista.indexOf(provider) + 1] || (provider === "browser" ? null : "browser");
+            if (otro) note.append(" ", h("button", { class: "btn-o", style: "margin-top:8px", title: NOMBRE_MOTOR[otro], onclick: () => {
+              S.vozForzada = otro; endCallSilently(); go("call", { id: e.id });
+            } }, "Seguir con otra voz"));
           }
           if (ev.code === "mic") {
             muted = true;
@@ -416,18 +422,25 @@
     });
     hang.addEventListener("click", () => engine.stop("user"));
 
-    if (provider !== "vapi" && !sup.stt) { muted = true; micBtn.disabled = true; abrirTeclado(false); }
+    if (provider === "browser" && !sup.stt) { muted = true; micBtn.disabled = true; abrirTeclado(false); }
 
     clearInterval(S.timer);
     S.timer = setInterval(() => { timer.textContent = fmtDur((Date.now() - started) / 1000); }, 500);
     engine.start({ system: T.prompts.voz(S.cfg, e, S.candidato), firstUserTurn: T.prompts.vozInicio(e), onEvent });
   };
 
-  // Qué motor de voz usar: Vapi si está configurado (y no falló en esta sesión), si no el navegador.
-  function motorDeVoz() {
+  // Motores de voz que se pueden usar, en orden: primero el del .env (VOICE_PROVIDER),
+  // después los otros configurados y al final la voz del navegador, que siempre está.
+  const NOMBRE_MOTOR = { "gemini-live": "Gemini Live", vapi: "Vapi", browser: "Voz del navegador" };
+  function motoresDeVoz() {
     const v = (S.server && S.server.voice) || {};
+    const listo = { "gemini-live": Boolean(v.geminiLive && v.geminiLive.disponible), vapi: Boolean(v.vapiPublicKey), browser: true };
+    return [v.provider, "gemini-live", "vapi", "browser"].filter((p, i, a) => listo[p] && a.indexOf(p) === i);
+  }
+  // Qué motor de voz usar: el del .env si está configurado (y no falló en esta sesión); si no, el siguiente.
+  function motorDeVoz() {
     if (S.vozForzada) return S.vozForzada;
-    return v.provider === "vapi" && v.vapiPublicKey ? "vapi" : "browser";
+    return motoresDeVoz()[0];
   }
 
   function endCallSilently() {
@@ -942,7 +955,7 @@
           field("Situación", "Incluí los datos que solo da si le preguntan.", tx("situacion")),
           field("Objetivo del candidato", null, tx("objetivo")),
           h("div", { class: "grid2" }, field("Duración (min)", null, dur), field("Dificultad", null, dif)),
-          field("Voz del cliente (Vapi)", "Automática: se elige por el nombre.", h("select", { onchange: ev => { e.voz = ev.target.value; markDirty(); } },
+          field("Voz del cliente (Gemini Live y Vapi)", "Automática: se elige por el nombre.", h("select", { onchange: ev => { e.voz = ev.target.value; markDirty(); } },
             [["", "Automática"], ["femenina", "Femenina"], ["masculina", "Masculina"]].map(([v, t]) => h("option", { value: v, text: t, selected: (e.voz || "") === v })))),
           h("div", null, h("button", { class: "btn-o btn-danger", onclick: () => { if (confirm(`¿Eliminar "${e.titulo}"?`)) { S.cfg.escenarios.splice(i, 1); markDirty(); render(); } } }, icon("trash"), "Eliminar escenario"))));
       }

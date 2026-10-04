@@ -98,10 +98,21 @@ const T_SILENCIO_STREAM = 60000;                          // si deja de mandar t
 const MAX_REINTENTOS = 2;
 const REINTENTABLES = new Set([429, 500, 502, 503, 529]);
 
-// Voz: "vapi" (por defecto) o "browser" (voz del navegador).
+// Voz: "gemini-live" (por defecto, voz a voz nativa), "vapi" o "browser" (voz del navegador).
 // La PUBLIC key de Vapi puede llegar al navegador (así está diseñada). La private key, nunca: no se lee.
+// GEMINI_API_KEY tampoco llega nunca al navegador: para Gemini Live se entrega un token efímero (/api/voz/token).
+const VOZ_PROVEEDORES = ["gemini-live", "vapi", "browser"];
 const VOICE = {
-  provider: env("VOICE_PROVIDER").toLowerCase() === "browser" ? "browser" : "vapi",
+  provider: VOZ_PROVEEDORES.includes(env("VOICE_PROVIDER").toLowerCase()) ? env("VOICE_PROVIDER").toLowerCase() : "gemini-live",
+  geminiLive: {
+    disponible: Boolean(env("GEMINI_API_KEY")),
+    model: env("GEMINI_LIVE_MODEL") || "gemini-3.8-live",
+    // "auto" elige voz femenina o masculina según el cliente del escenario.
+    voice: env("GEMINI_LIVE_VOICE") || "auto",
+    voiceFemenina: env("GEMINI_LIVE_VOICE_FEMENINA") || "Kore",
+    voiceMasculina: env("GEMINI_LIVE_VOICE_MASCULINA") || "Orus",
+    wsUrl: trimUrl(env("GEMINI_LIVE_WS_URL") || "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained")
+  },
   vapiPublicKey: env("VAPI_PUBLIC_KEY"),
   vapiAssistantId: env("VAPI_ASSISTANT_ID"),
   vapi: {
@@ -638,6 +649,43 @@ function geminiMessage(status, msg, model) {
   return (msg || "Error de la API de Gemini").slice(0, 300);
 }
 
+// ---------- Gemini Live: token efímero ----------
+// Un uso, 1 minuto para abrir la sesión y 30 para hablar, atado al modelo configurado:
+// aunque alguien lo copie del navegador, no sirve para otra cosa ni por mucho tiempo.
+async function tokenGeminiLive() {
+  const gl = VOICE.geminiLive;
+  if (!PROVIDERS.gemini.key) return { status: 503, error: "Falta GEMINI_API_KEY en el .env: Gemini Live la necesita. Creala gratis en https://aistudio.google.com/apikey y reiniciá el servidor." };
+  const ahora = Date.now();
+  const base = trimUrl(env("GEMINI_LIVE_BASE_URL") || "https://generativelanguage.googleapis.com");
+  let r;
+  try {
+    r = await fetch(`${base}/v1alpha/auth_tokens`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-goog-api-key": PROVIDERS.gemini.key },
+      body: JSON.stringify({
+        uses: 1,
+        expireTime: new Date(ahora + 30 * 60e3).toISOString(),
+        newSessionExpireTime: new Date(ahora + 60e3).toISOString(),
+        // Traba solo el modelo: el resto del setup (consigna del escenario, voz) lo manda el navegador.
+        // Sin fieldMask, Google traba el setup entero y descarta la consigna.
+        bidiGenerateContentSetup: { model: `models/${gl.model}` },
+        fieldMask: "model"
+      }),
+      signal: AbortSignal.timeout(15000)
+    });
+  } catch (_) {
+    return { status: 502, error: "No se pudo conectar con Google para abrir la llamada de Gemini Live. Revisá la conexión a internet." };
+  }
+  let j = null;
+  try { j = await r.json(); } catch (_) {}
+  if (!r.ok || !j || !j.name) {
+    const msg = (j && j.error && j.error.message) || "";
+    const st = geminiStatus(r.status, msg);
+    return { status: st >= 400 ? st : 502, error: sinSecretos(geminiMessage(r.status, msg, gl.model)).replace("Cambiá GEMINI_MODEL (o el de voz/evaluación)", "Cambiá GEMINI_LIVE_MODEL") };
+  }
+  return { token: j.name, model: gl.model, expira: new Date(ahora + 30 * 60e3).toISOString() };
+}
+
 const RUN = { "claude-sdk": runClaudeSdk, gemini: runGemini, anthropic: runAnthropic };
 
 // ¿Tiene sentido intentar con este proveedor? Devuelve un error si seguro que no.
@@ -831,6 +879,14 @@ async function handleApi(req, res, url) {
   }
 
   // Configuración de la empresa (la carga la persona responsable)
+  // Token efímero para Gemini Live: el navegador se conecta directo a Google con esto
+  // (sin pasar el audio por nuestro servidor) y la GEMINI_API_KEY no sale de acá.
+  if (url.pathname === "/api/voz/token") {
+    if (req.method !== "POST") return fail(res, 405, "Método no permitido");
+    const r = await tokenGeminiLive();
+    return r.error ? fail(res, r.status, r.error) : json(res, 200, r);
+  }
+
   if (url.pathname === "/api/empresa") {
     const file = path.join(DATA, "empresa.json");
     if (req.method === "GET") {
@@ -962,7 +1018,12 @@ server.listen(PORT, "127.0.0.1", () => {
   for (const id of CADENA) {
     if (id !== "claude-sdk" && !PROVIDERS[id].key) console.log(`  Atención: falta ${PROVIDERS[id].keyVar} en el archivo .env`);
   }
-  if (VOICE.provider === "vapi" && !VOICE.vapiPublicKey) {
+  if (VOICE.provider === "gemini-live" && !VOICE.geminiLive.disponible) {
+    console.log("  Voz: gemini-live · ATENCIÓN: falta GEMINI_API_KEY en el .env. Mientras tanto se usa " + (VOICE.vapiPublicKey ? "Vapi" : "la voz del navegador") + ".\n");
+  } else if (VOICE.provider === "gemini-live") {
+    const gl = VOICE.geminiLive;
+    console.log(`  Voz: gemini-live · modelo ${gl.model} · voz ${gl.voice === "auto" ? `${gl.voiceFemenina} / ${gl.voiceMasculina}` : gl.voice} (voz a voz nativa)\n`);
+  } else if (VOICE.provider === "vapi" && !VOICE.vapiPublicKey) {
     console.log("  Voz: vapi · ATENCIÓN: falta VAPI_PUBLIC_KEY en el .env. Mientras tanto se usa la voz del navegador.\n");
   } else if (VOICE.provider === "vapi") {
     console.log(`  Voz: vapi · modelo ${VOICE.vapi.modelProvider}/${VOICE.vapi.model} · voces ${VOICE.vapi.voiceFemenina} / ${VOICE.vapi.voiceMasculina} · ${VOICE.vapi.transcriber} ${VOICE.vapi.transcriberModel} (${VOICE.vapi.language})\n`);

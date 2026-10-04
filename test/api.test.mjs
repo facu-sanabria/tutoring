@@ -314,6 +314,64 @@ describe("servidor con Claude (anthropic)", () => {
   });
 });
 
+describe("voz con Gemini Live: token efímero", () => {
+  let app;
+  before(async () => { app = await startApp({ provider: "gemini", env: { VOICE_PROVIDER: "gemini-live" } }); });
+  after(async () => { await app.stop(); });
+
+  test("/api/config publica el motor y el modelo, nunca la key", async () => {
+    const { cuerpo, texto } = await pedir(app.base, "/api/config");
+    assert.equal(cuerpo.voice.provider, "gemini-live");
+    assert.equal(cuerpo.voice.geminiLive.disponible, true);
+    assert.equal(cuerpo.voice.geminiLive.model, "gemini-test-live");
+    assert.equal(cuerpo.voice.geminiLive.voice, "auto");
+    assert.ok(!/clave-de-prueba/.test(texto), "la config no puede llevar la GEMINI_API_KEY");
+  });
+
+  test("POST /api/voz/token entrega un token de un uso atado al modelo, sin exponer la key", async () => {
+    const { status, cuerpo, texto } = await pedir(app.base, "/api/voz/token", { method: "POST", json: {} });
+    assert.equal(status, 200);
+    assert.equal(cuerpo.token, "auth_tokens/token-falso-123");
+    assert.equal(cuerpo.model, "gemini-test-live");
+    assert.ok(!/clave-de-prueba/.test(texto));
+    const pedido = app.fake.calls.find(c => c.url.endsWith("/v1alpha/auth_tokens"));
+    assert.equal(pedido.auth, "clave-de-prueba", "la key va del servidor a Google, por header");
+    assert.equal(pedido.payload.uses, 1);
+    assert.equal(pedido.payload.bidiGenerateContentSetup.model, "models/gemini-test-live");
+    assert.equal(pedido.payload.fieldMask, "model", "solo se traba el modelo: la consigna la manda el navegador");
+    const vence = Date.parse(pedido.payload.expireTime) - Date.now();
+    assert.ok(vence > 25 * 60e3 && vence <= 30 * 60e3, "vence en unos 30 minutos");
+    assert.ok(Date.parse(pedido.payload.newSessionExpireTime) - Date.now() <= 60e3, "hay que abrir la sesión en menos de un minuto");
+  });
+
+  test("GET /api/voz/token no está permitido", async () => {
+    assert.equal((await pedir(app.base, "/api/voz/token")).status, 405);
+  });
+});
+
+describe("voz con Gemini Live: errores del token", () => {
+  test("sin GEMINI_API_KEY avisa qué variable falta", async () => {
+    const app = await startApp({ provider: "anthropic", env: { VOICE_PROVIDER: "gemini-live" } });
+    try {
+      const { cuerpo } = await pedir(app.base, "/api/config");
+      assert.equal(cuerpo.voice.geminiLive.disponible, false);
+      const r = await pedir(app.base, "/api/voz/token", { method: "POST", json: {} });
+      assert.equal(r.status, 503);
+      assert.match(r.cuerpo.error.message, /GEMINI_API_KEY/);
+    } finally { await app.stop(); }
+  });
+
+  test("cuota agotada se explica en castellano", async () => {
+    const app = await startApp({ provider: "gemini", key: "clave-sin-cuota", env: { VOICE_PROVIDER: "gemini-live" } });
+    try {
+      const r = await pedir(app.base, "/api/voz/token", { method: "POST", json: {} });
+      assert.equal(r.status, 429);
+      assert.match(r.cuerpo.error.message, /cuota/i);
+      assert.ok(!/clave-sin-cuota/.test(r.texto));
+    } finally { await app.stop(); }
+  });
+});
+
 describe("servidor sin API key", () => {
   let app;
   before(async () => { app = await startApp({ provider: "gemini", key: "" }); });

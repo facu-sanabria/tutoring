@@ -75,7 +75,16 @@ export async function startFakeLLM() {
     const system = esGemini ? (msgs.find(m => m.role === "system") || {}).content : payload.system;
     const users = msgs.filter(m => m.role === "user");
     const lastUser = users.length ? users[users.length - 1].content : "";
-    calls.push({ url, auth: req.headers.authorization || req.headers["x-api-key"] || "", payload });
+    calls.push({ url, auth: req.headers.authorization || req.headers["x-api-key"] || req.headers["x-goog-api-key"] || "", payload });
+
+    // Tokens efímeros de Gemini Live (POST /v1alpha/auth_tokens).
+    if (url.endsWith("/v1alpha/auth_tokens")) {
+      const key = req.headers["x-goog-api-key"] || "";
+      res.writeHead(key === "clave-sin-cuota" ? 429 : 200, { "content-type": "application/json" });
+      return res.end(JSON.stringify(key === "clave-sin-cuota"
+        ? { error: { code: 429, message: "Resource has been exhausted (e.g. check quota)." } }
+        : { name: "auth_tokens/token-falso-123" }));
+    }
 
     const caso = falla(lastUser);
     const jsonErr = (status, message) => {
@@ -131,6 +140,7 @@ export async function startFakeLLM() {
     calls,
     gemini: `http://127.0.0.1:${port}/gemini`,
     anthropic: `http://127.0.0.1:${port}/anthropic`,
+    live: `http://127.0.0.1:${port}/live`,
     close: () => new Promise(r => server.close(r))
   };
 }

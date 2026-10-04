@@ -1,10 +1,11 @@
 /* Motor de voz.
-   Hay dos implementaciones con la MISMA interfaz, así la app no cambia:
-     - "browser": voz del navegador (reconocimiento + síntesis de Chrome/Edge) y la IA vía /api/messages.
-     - "vapi":    Vapi (conversación natural, con interrupciones). VOICE_PROVIDER=vapi y VAPI_PUBLIC_KEY en el .env.
+   Hay tres implementaciones con la MISMA interfaz, así la app no cambia:
+     - "gemini-live": Gemini Live, voz a voz nativa (la más natural). VOICE_PROVIDER=gemini-live y GEMINI_API_KEY en el .env.
+     - "vapi":        Vapi (cadena voz → texto → IA → voz, con interrupciones). VOICE_PROVIDER=vapi y VAPI_PUBLIC_KEY.
+     - "browser":     voz del navegador (reconocimiento + síntesis de Chrome/Edge) y la IA vía /api/messages.
 
    Interfaz:
-     const engine = T.voice.create(provider, { voiceName, vapiPublicKey, vapiAssistantId, vapi, escenario });
+     const engine = T.voice.create(provider, { voiceName, vapiPublicKey, vapiAssistantId, vapi, geminiLive, escenario });
      engine.start({ system, firstUserTurn, onEvent })
      engine.sendText(texto)     // escribir en vez de hablar
      engine.interrupt()         // cortar al cliente y pasar a escuchar
@@ -20,7 +21,8 @@
      {type:"turn", role, text}            un turno terminado
      {type:"level", value}                volumen del micrófono 0..1
      {type:"end", reason:"fin"|"user"}    la llamada terminó
-     {type:"error", message, fatal, code} code: "mic" cuando el problema es el micrófono
+     {type:"error", message, fatal, code} code: "mic" cuando el problema es el micrófono,
+                                          "voz_inicio" / "vapi_inicio" cuando el motor no pudo conectar
 */
 window.T = window.T || {};
 
@@ -704,7 +706,432 @@ T.voice = (function () {
     };
   }
 
+  // ---------------------------------------------------------------------------
+  // Implementación con Gemini Live (VOICE_PROVIDER=gemini-live): voz a voz nativa.
+  // El modelo escucha el audio y responde con audio, sin pasar por texto en el medio:
+  // por eso suena natural, entona y se lo puede interrumpir hablando encima.
+  // El navegador se conecta directo a Google por WebSocket con un token efímero que
+  // genera nuestro servidor (/api/voz/token); la GEMINI_API_KEY nunca llega acá.
+  // La transcripción de los dos lados la manda Gemini y va a engine.history para la evaluación.
+  // ---------------------------------------------------------------------------
+  const GL_ENTRADA_HZ = 16000;   // lo que pide la API: PCM 16 bits mono, 16 kHz, little-endian
+  const GL_SALIDA_HZ = 24000;    // lo que devuelve: PCM 16 bits mono, 24 kHz
+  const GL_T_SETUP = 15000;      // si no confirma la sesión en este tiempo, no conectó
+  const GL_T_MARGEN = 0.06;      // colchón (s) al empezar a reproducir, para que no se entrecorte
+
+  // Corre en el hilo de audio: baja el micrófono a 16 kHz (promediando, que también filtra),
+  // lo pasa a PCM de 16 bits y lo manda en bloques de 40 ms junto con el volumen.
+  const GL_WORKLET = `
+class MicPcm extends AudioWorkletProcessor {
+  constructor() {
+    super();
+    this.paso = sampleRate / ${GL_ENTRADA_HZ};
+    this.t = 0; this.suma = 0; this.n = 0;
+    this.bloque = new Int16Array(${GL_ENTRADA_HZ / 25}); this.i = 0; this.energia = 0;
+  }
+  process(inputs) {
+    const ch = inputs[0] && inputs[0][0];
+    if (!ch) return true;
+    for (let k = 0; k < ch.length; k++) {
+      const x = ch[k];
+      this.suma += x; this.n++; this.t++; this.energia += x * x;
+      if (this.t >= this.paso) {
+        this.t -= this.paso;
+        const v = Math.max(-1, Math.min(1, this.suma / this.n));
+        this.suma = 0; this.n = 0;
+        this.bloque[this.i++] = v < 0 ? v * 0x8000 : v * 0x7fff;
+        if (this.i === this.bloque.length) {
+          const nivel = Math.sqrt(this.energia / (this.bloque.length * this.paso));
+          this.port.postMessage({ pcm: this.bloque.buffer, nivel }, [this.bloque.buffer]);
+          this.bloque = new Int16Array(${GL_ENTRADA_HZ / 25}); this.i = 0; this.energia = 0;
+        }
+      }
+    }
+    return true;
+  }
+}
+registerProcessor("mic-pcm", MicPcm);`;
+
+  function aBase64(buffer) {
+    const b = new Uint8Array(buffer);
+    let s = "";
+    for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000));
+    return btoa(s);
+  }
+  function pcmAFloat(b64) {
+    const bin = atob(b64);
+    const n = bin.length >> 1;
+    const f = new Float32Array(n);
+    for (let i = 0; i < n; i++) {
+      let v = bin.charCodeAt(2 * i) | (bin.charCodeAt(2 * i + 1) << 8);
+      if (v >= 0x8000) v -= 0x10000;
+      f[i] = v / 0x8000;
+    }
+    return f;
+  }
+
+  // Explica en castellano por qué no se pudo abrir o se cortó la sesión.
+  function mensajeErrorGemini(texto, modelo) {
+    const m = String(texto || "");
+    if (/api key|api_key|unauthenticated|permission|token|credential|expired/i.test(m)) return "Google rechazó la conexión de Gemini Live (token o GEMINI_API_KEY inválidos). Revisá la key del .env y reiniciá el servidor.";
+    if (/quota|exceeded|exhausted|rate|429/i.test(m)) return "Se agotó la cuota gratuita de Gemini Live por ahora. Esperá un rato o seguí con otra voz.";
+    if (/not found|not supported|unknown model|does not exist/i.test(m)) return `El modelo "${modelo}" no está disponible para Gemini Live con tu key. Cambiá GEMINI_LIVE_MODEL en el .env.`;
+    if (/invalid argument|invalid json|unknown name/i.test(m)) return "Gemini Live rechazó la configuración de la llamada" + (m ? ": " + m.slice(0, 160) : ".");
+    return "No se pudo conectar con Gemini Live" + (m ? ": " + m.slice(0, 160) : ". Revisá la conexión a internet.");
+  }
+
+  function GeminiLiveEngine(opts = {}) {
+    const self = this;
+    const gl = opts.geminiLive || {};
+    this.history = [];
+    let emit = () => {}, ended = false, state = "idle", muted = false, conectado = false;
+    let ws = null, token = null, handle = null, reintentos = 0, setupTimer = null;
+    let system = "", primerTurno = "";
+    let media = null, ctx = null, nodoMic = null, salida = null, analizador = null, raf = 0, nivelMic = 0, finDeAudioMandado = false;
+    let fuentes = new Set(), cola = 0;          // audio del cliente ya programado para sonar
+    let textoCliente = "", textoUsuario = "";   // turnos que se están armando
+    let generando = false, descartar = false;   // descartar: el estudiante cortó al cliente y todavía llega audio viejo
+    let finPendiente = false, finTimer = null;
+
+    Object.defineProperty(this, "state", { get: () => state });
+    const setState = s => { if (ended && s !== "ended") return; if (state === s) return; state = s; emit({ type: "state", state: s }); };
+    const aviso = (message, extra) => emit(Object.assign({ type: "error", message, fatal: false }, extra || {}));
+    const agregar = (role, content) => {
+      const last = self.history[self.history.length - 1];
+      if (last && last.role === role) last.content += "\n\n" + content;
+      else self.history.push({ role, content });
+    };
+    const mandar = m => { if (ws && ws.readyState === 1) { try { ws.send(JSON.stringify(m)); } catch (_) {} } };
+
+    function voz() {
+      if (gl.voice && gl.voice !== "auto") return gl.voice;
+      return generoCliente(opts.escenario) === "f" ? (gl.voiceFemenina || "Kore") : (gl.voiceMasculina || "Orus");
+    }
+
+    // ----- Turnos y transcripción -----
+    function cerrarUsuario() {
+      const t = textoUsuario.trim();
+      textoUsuario = "";
+      if (!t) return;
+      agregar("user", t);
+      emit({ type: "turn", role: "user", text: t });
+      emit({ type: "interim", text: "" });
+    }
+    function cerrarCliente() {
+      const bruto = textoCliente;
+      textoCliente = "";
+      if (/\[\s*FIN\s*\]/i.test(bruto)) finPendiente = true;
+      const limpio = speakable(bruto);
+      if (limpio) {
+        agregar("assistant", limpio + (finPendiente ? " [FIN]" : ""));
+        emit({ type: "turn", role: "assistant", text: limpio });
+      } else if (finPendiente) agregar("assistant", "[FIN]");
+    }
+
+    // ----- Audio del cliente -----
+    function reproducir(b64) {
+      if (!ctx || ended) return;
+      const f = pcmAFloat(b64);
+      if (!f.length) return;
+      const buf = ctx.createBuffer(1, f.length, GL_SALIDA_HZ);
+      buf.copyToChannel(f, 0);
+      const src = ctx.createBufferSource();
+      src.buffer = buf;
+      src.connect(salida);
+      // Pegamos cada pedazo al anterior; si la cola se vació, dejamos un colchón chico.
+      const ahora = ctx.currentTime;
+      if (cola < ahora) cola = ahora + GL_T_MARGEN;
+      src.start(cola);
+      cola += buf.duration;
+      fuentes.add(src);
+      src.onended = () => { fuentes.delete(src); if (!fuentes.size) audioTerminado(); };
+    }
+    function cortarAudio() {
+      fuentes.forEach(s => { s.onended = null; try { s.stop(); } catch (_) {} });
+      fuentes.clear();
+      cola = 0;
+    }
+    // Se vació la cola de audio: si el modelo ya terminó el turno, el cliente terminó de hablar.
+    function audioTerminado() {
+      if (ended) return;
+      if (finPendiente) return intentarCerrar();
+      if (generando) return;   // es un hueco de red, sigue llegando audio
+      if (textoCliente) cerrarCliente();
+      if (finPendiente) return intentarCerrar();
+      setState("listening");
+    }
+    // El cliente se despidió: cortamos cuando termina de sonar la despedida.
+    function intentarCerrar(desde) {
+      desde = desde || Date.now();
+      clearTimeout(finTimer);
+      finTimer = setTimeout(() => {
+        if (ended) return;
+        if (fuentes.size) return;   // todavía suena: lo vuelve a llamar audioTerminado
+        // Puede faltar un pedazo de la despedida que viene por la red: esperamos un poco, no para siempre.
+        if (generando && Date.now() - desde < 6000) return intentarCerrar(desde);
+        self.stop("fin");
+      }, 900);
+    }
+
+    // ----- Mensajes de Gemini -----
+    function alMensaje(m) {
+      if (ended) return;
+      if (m.setupComplete) return sesionLista();
+      if (m.sessionResumptionUpdate) {
+        const u = m.sessionResumptionUpdate;
+        if (u.resumable !== false && u.newHandle) handle = u.newHandle;
+        return;
+      }
+      if (m.toolCall) {
+        const llamadas = m.toolCall.functionCalls || [];
+        if (llamadas.some(c => c && c.name === "colgar")) { finPendiente = true; if (!fuentes.size && !generando) audioTerminado(); else intentarCerrar(); }
+        return;
+      }
+      const sc = m.serverContent;
+      if (!sc) return;
+
+      if (sc.inputTranscription && sc.inputTranscription.text) {
+        textoUsuario += sc.inputTranscription.text;
+        emit({ type: "interim", text: textoUsuario.trim() });
+      }
+      if (sc.interrupted) {
+        // El estudiante habló encima: el cliente se calla al instante.
+        cortarAudio();
+        generando = false; descartar = false;
+        if (textoCliente) cerrarCliente();
+        setState("listening");
+      }
+      const partes = (sc.modelTurn && sc.modelTurn.parts) || [];
+      const conAudio = partes.filter(p => p.inlineData && p.inlineData.data && /audio/.test(p.inlineData.mimeType || "audio"));
+      const conTexto = sc.outputTranscription && sc.outputTranscription.text;
+      if ((conAudio.length || conTexto) && !descartar) {
+        if (!generando) { generando = true; cerrarUsuario(); }
+        conAudio.forEach(p => reproducir(p.inlineData.data));
+        if (conAudio.length) setState("speaking");
+        if (conTexto) {
+          textoCliente += sc.outputTranscription.text;
+          if (/\[\s*FIN\s*\]/i.test(textoCliente)) finPendiente = true;
+          emit({ type: "partial", text: speakable(textoCliente) });
+        }
+      }
+      if (sc.turnComplete) {
+        const habiaDescarte = descartar;
+        generando = false; descartar = false;
+        if (habiaDescarte) return;
+        if (!fuentes.size) audioTerminado();
+      }
+    }
+
+    function sesionLista() {
+      clearTimeout(setupTimer);
+      reintentos = 0;
+      if (conectado) { setState("listening"); return; }   // reconexión: la conversación sigue donde estaba
+      conectado = true;
+      // El cliente habla primero: le damos la consigna de arranque como si fuera el pie.
+      setState("thinking");
+      mandar({ realtimeInput: { text: primerTurno } });
+    }
+
+    function setup() {
+      const instrucciones = system
+        + "\n\nIMPORTANTE (esta llamada es solo por voz)\n"
+        + "- No digas ni leas en voz alta marcas como [FIN]. Para cortar, cuando ya te despediste, llamá a la herramienta colgar.\n"
+        + "- Si te hablan encima, callate y escuchá; después seguí desde ahí.";
+      const s = {
+        model: "models/" + (gl.model || "gemini-3.8-live"),
+        generationConfig: {
+          responseModalities: ["AUDIO"],
+          speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voz() } } }
+        },
+        systemInstruction: { parts: [{ text: instrucciones }] },
+        tools: [{ functionDeclarations: [{ name: "colgar", description: "Corta la llamada. Usala solo después de despedirte, cuando la conversación llegó a un cierre natural." }] }],
+        inputAudioTranscription: {},
+        outputAudioTranscription: {},
+        realtimeInputConfig: { automaticActivityDetection: { prefixPaddingMs: 40, silenceDurationMs: 500 } },
+        // Una conexión dura unos 10 minutos: con esto se retoma la misma conversación.
+        sessionResumption: handle ? { handle } : {},
+        contextWindowCompression: { slidingWindow: {} }
+      };
+      return { setup: s };
+    }
+
+    async function pedirToken() {
+      const r = await fetch("/api/voz/token", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      let j = null; try { j = await r.json(); } catch (_) {}
+      if (!r.ok || !j || !j.token) throw new Error((j && j.error && (j.error.message || j.error)) || "El servidor no pudo generar el token de Gemini Live.");
+      return j.token;
+    }
+
+    function abrir() {
+      const url = (gl.wsUrl || "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained")
+        + "?access_token=" + encodeURIComponent(token);
+      const yo = ws = new WebSocket(url);
+      clearTimeout(setupTimer);
+      setupTimer = setTimeout(() => { if (ws === yo && !ended) { try { yo.close(); } catch (_) {} cayo(yo, 4000, "timeout"); } }, GL_T_SETUP);
+      yo.onopen = () => { if (ws === yo) mandar(setup()); };
+      yo.onmessage = async ev => {
+        if (ws !== yo) return;
+        let txt = ev.data;
+        if (typeof txt !== "string") { try { txt = await (txt.text ? txt.text() : new Response(txt).text()); } catch (_) { return; } }
+        let m; try { m = JSON.parse(txt); } catch (_) { return; }
+        alMensaje(m);
+      };
+      yo.onclose = ev => cayo(yo, ev.code, ev.reason);
+      yo.onerror = () => {};
+    }
+
+    // Se cerró el WebSocket sin que colgáramos nosotros.
+    async function cayo(yo, code, reason) {
+      if (ws !== yo || ended) return;
+      ws = null;
+      clearTimeout(setupTimer);
+      if (!conectado) return fallarInicio(code === 4000 ? "Gemini Live no respondió a tiempo. Revisá la conexión a internet." : mensajeErrorGemini(reason, gl.model));
+      // Ya estábamos hablando: Google corta cada ~10 minutos o se cayó la red. Retomamos la sesión.
+      if (handle && reintentos < 2) {
+        reintentos++;
+        cortarAudio(); generando = false;
+        if (textoCliente) cerrarCliente();
+        try { token = await pedirToken(); } catch (_) {}
+        if (ended) return;
+        setState("connecting");
+        abrir();
+        return;
+      }
+      aviso("Se cortó la conexión con Gemini Live" + (reason ? " (" + String(reason).slice(0, 120) + ")" : "") + ".");
+      self.stop("fin");
+    }
+
+    function fallarInicio(message) {
+      if (ended) return;
+      ended = true;
+      liberar();
+      emit({ type: "error", message, fatal: true, code: "voz_inicio" });
+    }
+
+    // ----- Micrófono -----
+    async function arrancarAudio() {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      if (ctx.state === "suspended") ctx.resume().catch(() => {});
+      salida = ctx.createGain();
+      analizador = ctx.createAnalyser(); analizador.fftSize = 512;
+      salida.connect(analizador); analizador.connect(ctx.destination);
+      try {
+        media = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+      } catch (_) {
+        muted = true;
+        aviso("No hay acceso al micrófono. Permitilo en el navegador o escribí tus respuestas.", { code: "mic" });
+        return;
+      }
+      if (ended) return;
+      const url = URL.createObjectURL(new Blob([GL_WORKLET], { type: "application/javascript" }));
+      try { await ctx.audioWorklet.addModule(url); } finally { URL.revokeObjectURL(url); }
+      if (ended) return;
+      nodoMic = new AudioWorkletNode(ctx, "mic-pcm");
+      nodoMic.port.onmessage = e => {
+        nivelMic = e.data.nivel || 0;
+        if (muted || ended || !conectado) return;
+        finDeAudioMandado = false;
+        mandar({ realtimeInput: { audio: { data: aBase64(e.data.pcm), mimeType: "audio/pcm;rate=" + GL_ENTRADA_HZ } } });
+      };
+      ctx.createMediaStreamSource(media).connect(nodoMic);
+      // El worklet tiene que estar conectado a algo para que el navegador lo haga correr; sale en silencio.
+      const mudo = ctx.createGain(); mudo.gain.value = 0;
+      nodoMic.connect(mudo); mudo.connect(ctx.destination);
+    }
+    function animarNivel() {
+      const buf = new Uint8Array(512);
+      const tick = () => {
+        if (ended) return;
+        let v = 0;
+        if (state === "listening" && !muted) v = Math.min(1, nivelMic * 4);
+        else if (state === "speaking" && analizador) {
+          analizador.getByteTimeDomainData(buf);
+          let s = 0; for (let i = 0; i < buf.length; i++) { const x = (buf[i] - 128) / 128; s += x * x; }
+          v = Math.min(1, Math.sqrt(s / buf.length) * 4);
+        }
+        emit({ type: "level", value: v });
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+    }
+    function liberar() {
+      clearTimeout(setupTimer); clearTimeout(finTimer);
+      cancelAnimationFrame(raf); raf = 0;
+      cortarAudio();
+      if (ws) { const w = ws; ws = null; try { w.close(1000); } catch (_) {} }
+      if (nodoMic) { try { nodoMic.port.onmessage = null; nodoMic.disconnect(); } catch (_) {} }
+      if (media) media.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+      if (ctx) ctx.close().catch(() => {});
+      media = null; ctx = null; nodoMic = null;
+    }
+
+    // ----- API pública -----
+    this.start = async function ({ system: sys, firstUserTurn, onEvent }) {
+      emit = onEvent || emit;
+      system = sys || "";
+      primerTurno = firstUserTurn || "Hablá vos primero, corto.";
+      ended = false; conectado = false; finPendiente = false; handle = null;
+      self.history = [];
+      setState("connecting");
+      if (typeof WebSocket === "undefined" || !(window.AudioContext || window.webkitAudioContext)) {
+        fallarInicio("Este navegador no soporta Gemini Live. Usá Chrome o Edge, o seguí con otra voz.");
+        return;
+      }
+      // Token y micrófono en paralelo: así arranca más rápido.
+      const tok = pedirToken().then(t => { token = t; return null; }, e => e);
+      try { await arrancarAudio(); }
+      catch (_) { if (!ended) aviso("No se pudo preparar el audio del micrófono. Escribí tus respuestas.", { code: "mic" }); muted = true; }
+      const err = await tok;
+      if (ended) return;
+      if (err) { fallarInicio(err.message); return; }
+      animarNivel();
+      abrir();
+    };
+
+    this.sendText = function (text) {
+      const t = String(text || "").trim();
+      if (!t || ended || !conectado) return;
+      // Escribir siempre manda: si el cliente está hablando, lo cortamos.
+      if (state === "speaking" || generando) { cortarAudio(); if (generando) descartar = true; generando = false; if (textoCliente) cerrarCliente(); }
+      cerrarUsuario();
+      agregar("user", t);
+      emit({ type: "turn", role: "user", text: t });
+      setState("thinking");
+      mandar({ realtimeInput: { text: t } });
+    };
+
+    // Tocar la esfera: el cliente se calla ya y pasamos a escuchar.
+    this.interrupt = function () {
+      if (ended || (state !== "speaking" && state !== "thinking")) return;
+      cortarAudio();
+      // Si todavía está generando (o por empezar), descartamos lo que siga llegando de esa respuesta.
+      if (generando || state === "thinking") descartar = true;
+      generando = false;
+      if (textoCliente) cerrarCliente();
+      finPendiente = false;
+      setState("listening");
+    };
+
+    this.setMuted = function (m) {
+      muted = Boolean(m) || !media;
+      // Avisamos que se cortó el audio para que Gemini no se quede esperando el final de la frase.
+      if (muted && !finDeAudioMandado && conectado) { finDeAudioMandado = true; mandar({ realtimeInput: { audioStreamEnd: true } }); }
+    };
+
+    this.stop = function (reason = "user") {
+      if (ended) return;
+      cerrarUsuario();
+      if (textoCliente) cerrarCliente();
+      ended = true;
+      liberar();
+      state = "ended";
+      emit({ type: "state", state: "ended" });
+      emit({ type: "end", reason });
+    };
+  }
+
   function create(provider, opts) {
+    if (provider === "gemini-live") return new GeminiLiveEngine(opts);
     return provider === "vapi" ? new VapiEngine(opts) : new BrowserEngine(opts);
   }
 
