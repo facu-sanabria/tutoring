@@ -21,13 +21,13 @@ const PUERTO = String(process.env.PORT || 3200);
 const fake = await startFakeLLM();
 const dataDir = process.env.DATA_DIR || fs.mkdtempSync(path.join(os.tmpdir(), "tutoring-demo-"));
 fs.mkdirSync(path.join(dataDir, "informes"), { recursive: true });
-crearCuentasDemo(createRequire(import.meta.url)("../auth.js")(dataDir));
+crearCuentasDemo(createRequire(import.meta.url)("../backend/src/modules/auth/auth.service.js")(dataDir));
 
 console.log("  IA falsa escuchando en el puerto", fake.port);
 console.log("  Datos de esta corrida:", dataDir);
 console.log("  Cuentas (usuario / contraseña):", CUENTAS_DEMO.map(c => `${c.usuario} / ${c.clave}`).join(" · "));
 
-const proc = spawn(process.execPath, [path.join(RAIZ, "server.js")], {
+const proc = spawn(process.execPath, [path.join(RAIZ, "backend", "server.js")], {
   cwd: RAIZ,
   stdio: "inherit",
   env: {

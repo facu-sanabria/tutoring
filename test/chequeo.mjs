@@ -43,7 +43,7 @@ const ojo = (texto, detalle) => { console.log(`  ${A}! ${texto}${X}${detalle ? "
 const titulo = t => console.log(`\n${N}${t}${X}`);
 
 // ---------- servidor de prueba ----------
-const proc = spawn(process.execPath, [path.join(RAIZ, "server.js")], {
+const proc = spawn(process.execPath, [path.join(RAIZ, "backend", "server.js")], {
   cwd: RAIZ,
   env: { ...process.env, PORT: "0", DATA_DIR: dataDir, LOG_DIR: path.join(RAIZ, "data", "logs") },
   stdio: ["ignore", "pipe", "pipe"]
@@ -60,7 +60,7 @@ const puerto = await new Promise((res, rej) => {
   proc.on("exit", () => { clearTimeout(t); clearInterval(iv); rej(new Error("el servidor se cerró:\n" + salida)); });
 }).catch(e => { console.error("\n  " + e.message); terminar(1); });
 const BASE = `http://127.0.0.1:${puerto}`;
-// Llave que escribe el servidor al arrancar (ver server.js): sin ella la API responde 401.
+// Llave que escribe el servidor al arrancar (ver backend/src/modules/auth/sesion.js): sin ella la API responde 401.
 const llaveLocal = dir => { try { return fs.readFileSync(path.join(dir, "llave-local.txt"), "utf8").trim(); } catch (_) { return ""; } };
 const LLAVE = { "x-llave-local": llaveLocal(dataDir) };
 const get = async p => (await fetch(BASE + p, { headers: LLAVE })).json();

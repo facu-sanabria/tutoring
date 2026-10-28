@@ -1,4 +1,4 @@
-/* Arranca server.js en un proceso aparte, con la falsa API de IA y una carpeta
+/* Arranca backend/server.js en un proceso aparte, con la falsa API de IA y una carpeta
    de datos temporal, así las pruebas no tocan data/ ni salen a internet.
    Siembra usuarios de prueba (clave "clave-de-prueba") y entra como empresa1:
    pedir() y pedirMensajes() mandan esa sesión salvo que se pase { cookie: null } u otra. */
@@ -12,7 +12,7 @@ import vm from "node:vm";
 import { startFakeLLM } from "./fake-llm.mjs";
 
 const require = createRequire(import.meta.url);
-const crearAuth = require("../auth.js");
+const crearAuth = require("../backend/src/modules/auth/auth.service.js");
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // sinUsuarios: arranca con la carpeta de datos vacía (el servidor crea las cuentas de prueba) y entra como empresa-demo.
@@ -31,7 +31,7 @@ export async function startApp({ provider = "gemini", key = "clave-de-prueba", e
     codigoNuevo = auth.crearUsuario({ rol: "estudiante", nombre: "Nico Nuevo", usuario: "nuevo1" }).codigo;
   }
 
-  const proc = spawn(process.execPath, [path.join(RAIZ, "server.js")], {
+  const proc = spawn(process.execPath, [path.join(RAIZ, "backend", "server.js")], {
     cwd: RAIZ,
     env: {
       ...process.env,

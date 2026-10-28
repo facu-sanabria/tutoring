@@ -1,7 +1,7 @@
 // Usuarios, contraseñas y sesiones, guardados como JSON en la carpeta de datos.
 // - usuarios.json: la contraseña nunca está en texto (scrypt + sal).
 // - sesiones.json: se guarda sha256(token), no el token que viaja en la cookie.
-// Lo usan server.js y scripts/usuarios.mjs. Sin dependencias.
+// Lo usan backend/src/modules/auth/sesion.js y scripts/usuarios.mjs. Sin dependencias.
 const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");

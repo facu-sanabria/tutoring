@@ -72,7 +72,7 @@ def levantar_servidor():
     datos = tempfile.mkdtemp(prefix="tutoring-evals-")
     env = {**os.environ, "PORT": "0", "DATA_DIR": datos, "LOG_DIR": str(RAIZ / "data" / "logs")}
     os.environ["DATA_DIR"] = datos   # puente.mjs lee de ahí la llave local del servidor
-    proc = subprocess.Popen([node(), str(RAIZ / "server.js")], cwd=RAIZ, env=env,
+    proc = subprocess.Popen([node(), str(RAIZ / "backend" / "server.js")], cwd=RAIZ, env=env,
                             stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8")
     salida, t0 = "", time.time()
     while time.time() - t0 < 20:

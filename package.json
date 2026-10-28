@@ -3,9 +3,9 @@
   "version": "1.0.0",
   "private": true,
   "description": "Simulaciones por voz para evaluar habilidades blandas y mentor de IA para juniors, con el contexto que carga el senior",
-  "main": "server.js",
+  "main": "backend/server.js",
   "scripts": {
-    "start": "node server.js",
+    "start": "node backend/server.js",
     "test": "node --test test/api.test.mjs test/auth.test.mjs test/auth-rutas.test.mjs test/core.test.mjs test/evaluation.test.mjs test/prompts.test.mjs test/inicio-llamada.test.mjs test/mkt.test.mjs test/llamada-realista.test.mjs test/cache.test.mjs test/carrera.test.mjs test/voz-keys.test.mjs",
     "test:e2e": "node --test test/e2e.test.mjs test/evaluation-browser.test.mjs test/voz-gemini.test.mjs",
     "test:todo": "node --test test/api.test.mjs test/auth.test.mjs test/auth-rutas.test.mjs test/core.test.mjs test/evaluation.test.mjs test/prompts.test.mjs test/inicio-llamada.test.mjs test/mkt.test.mjs test/llamada-realista.test.mjs test/cache.test.mjs test/carrera.test.mjs test/voz-keys.test.mjs test/e2e.test.mjs test/evaluation-browser.test.mjs test/voz-gemini.test.mjs",

@@ -20,7 +20,7 @@ const opcion = n => { const i = args.indexOf(n); return i >= 0 ? args[i + 1] : u
 const URL_APP = opcion("--url") || process.env.TUTORING_URL || "http://localhost:3000";
 // La llave local está en la carpeta de datos del servidor (DATA_DIR o data/). Sin ella, /api/messages da 401.
 const DATOS = path.resolve(RAIZ, opcion("--datos") || process.env.DATA_DIR || "data");
-// Llave que escribe el servidor al arrancar (ver server.js): sin ella la API responde 401.
+// Llave que escribe el servidor al arrancar (ver backend/src/modules/auth/sesion.js): sin ella la API responde 401.
 const llaveLocal = dir => { try { return fs.readFileSync(path.join(dir, "llave-local.txt"), "utf8").trim(); } catch (_) { return ""; } };
 
 const salir = (obj, codigo = 0) => { process.stdout.write(JSON.stringify(obj) + "\n"); process.exit(codigo); };

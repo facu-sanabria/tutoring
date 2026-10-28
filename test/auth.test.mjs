@@ -1,4 +1,4 @@
-/* Pruebas de auth.js: usuarios, contraseñas, sesiones y límite de intentos.
+/* Pruebas de auth (backend/src/modules/auth/auth.service.js): usuarios, contraseñas, sesiones y límite de intentos.
    No levantan el servidor: usan una carpeta temporal y un reloj falso. */
 import { test, describe, beforeEach } from "node:test";
 import assert from "node:assert/strict";
@@ -10,7 +10,7 @@ import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const crearAuth = require("../auth.js");
+const crearAuth = require("../backend/src/modules/auth/auth.service.js");
 
 const CODIGO = /^[A-HJ-NP-Z2-9]{3}-[A-HJ-NP-Z2-9]{3}-[A-HJ-NP-Z2-9]{3}$/;
 const IP = "127.0.0.1";

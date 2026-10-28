@@ -13,10 +13,10 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 
 const require = createRequire(import.meta.url);
-const crearAuth = require("../auth.js");
+const crearAuth = require("../backend/src/modules/auth/auth.service.js");
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
-// Solo nos interesa DATA_DIR del .env; la variable de entorno tiene prioridad, como en server.js.
+// Solo nos interesa DATA_DIR del .env; la variable de entorno tiene prioridad, como en backend/src/config/env.js.
 function dataDirDelEnv() {
   if (process.env.DATA_DIR) return process.env.DATA_DIR.trim();
   try {
@@ -26,7 +26,7 @@ function dataDirDelEnv() {
   return "data";
 }
 
-// Las cuentas de prueba están en auth.js: el servidor también las crea si arranca sin usuarios.
+// Las cuentas de prueba están en backend/src/modules/auth/auth.service.js: el servidor también las crea si arranca sin usuarios.
 export const CUENTAS_DEMO = crearAuth.CUENTAS_DEMO;
 export const crearCuentasDemo = auth => auth.crearCuentasDemo();
 
