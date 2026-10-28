@@ -64,8 +64,10 @@
       criterios: crits.filter(Boolean).map(c => ({
         nombre: texto1(c.nombre || c.criterio || c.name),
         puntaje: puntajeCriterio(c.puntaje != null ? c.puntaje : c.score),
+        observado: texto1(c.observado),
         evidencia: texto1(c.evidencia || c.cita || c.evidence),
-        comentario: texto1(c.comentario || c.comment)
+        comentario: texto1(c.comentario || c.comment),
+        paraSubir: texto1(c.paraSubir || c.para_subir)
       })),
       expresion: texto1(raw.expresion)
     };
@@ -118,15 +120,36 @@
       if (p == null) return;
       let peso = Number(c && c.peso);
       if (!Number.isFinite(peso) || peso <= 0) peso = 1;
-      num += p * peso; den += 5 * peso; cubiertos++;
+      // Escala 1-5 llevada a 0-100 % (1 = 0 %, 3 = 50 %, 5 = 100 %).
+      num += (p - 1) * peso; den += 4 * peso; cubiertos++;
     });
     return { puntaje: den ? Math.round((num / den) * 100) : null, cubiertos, total: defs.length };
   }
 
   // ---------------------------------------------------------------- voz
   // Limpia lo que no se tiene que leer en voz alta.
+  // El acento rioplatense a veces se cuela en la transcripción de la voz ("Sho te shamé").
+  // Se corrigen palabras comunes y las raíces de "llamar", "llegar", "llenar" y "llevar";
+  // "show" o "shopping" no se tocan.
+  const SHEISMO = {
+    sho: "yo", sha: "ya", shendo: "yendo", esha: "ella", eshas: "ellas", esho: "ello", eshos: "ellos",
+    cashe: "calle", cashes: "calles", ashá: "allá", ashí: "allí", asher: "ayer", ashuda: "ayuda", masho: "mayo",
+    shuvia: "lluvia", shave: "llave", shaves: "llaves",
+    ehtá: "está", ehtás: "estás", ehtoy: "estoy", ehtamos: "estamos", ehto: "esto", ehta: "esta", mihmo: "mismo", mihma: "misma"
+  };
+  const comoEn = (orig, nueva) => orig === orig.toUpperCase() && orig.length > 1 ? nueva.toUpperCase()
+    : orig[0] === orig[0].toUpperCase() ? nueva[0].toUpperCase() + nueva.slice(1) : nueva;
+  function sinSheismo(t) {
+    return t.replace(/(?<!\p{L})\p{L}+(?!\p{L})/gu, p => {
+      const min = p.toLowerCase();
+      if (SHEISMO[min]) return comoEn(p, SHEISMO[min]);
+      if (/^sh(am|eg|en|ev)/.test(min)) return comoEn(p, "ll" + min.slice(2));
+      return p;
+    });
+  }
+
   function textoHablable(t) {
-    return String(t == null ? "" : t)
+    return sinSheismo(String(t == null ? "" : t))
       .replace(/\[\s*FIN\s*\]/gi, " ")
       .replace(/```[\s\S]*?(```|$)/g, " ")
       .replace(/\*\*?|[_#`>~]/g, "")
@@ -233,6 +256,8 @@
     c.escenarios = Array.isArray(c.escenarios) ? c.escenarios : [];
     c.criterios = Array.isArray(c.criterios) ? c.criterios : [];
     c.notasEvaluacion = str(c.notasEvaluacion);
+    // La voz del cliente suena como por teléfono (filtro de Gemini Live). Prendida salvo que la apaguen.
+    c.vozTelefonica = c.vozTelefonica !== false;
     return c;
   }
 

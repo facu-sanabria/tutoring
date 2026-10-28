@@ -23,6 +23,28 @@ PORT=3100 npm start                      # Git Bash / macOS / Linux
 $env:PORT=3100; npm start                # PowerShell
 ```
 
+## Usuarios y acceso
+
+Sin ingresar no se puede usar nada. Cada persona tiene su propia cuenta con uno de tres roles: **estudiante** (en pantalla, "Candidato"), **junior** o **empresa**. Las cuentas de empresa tampoco se comparten: RR. HH., gerentes y jefes tienen cada uno la suya. Al entrar, cada uno ve solo su perfil.
+
+Las cuentas se crean desde la consola (todavía no hay pantalla de administración):
+
+```
+npm run usuarios -- crear --rol estudiante --nombre "Juan Pérez"   # rol: estudiante | junior | empresa
+npm run usuarios -- listar
+npm run usuarios -- resetear jperez       # nuevo código inicial y cierra sus sesiones
+npm run usuarios -- desactivar jperez     # ya no puede entrar (activar para volver)
+npm run usuarios -- demo                  # cuentas de prueba candidato-demo, junior-demo y empresa-demo (clave 1234)
+```
+
+`crear` y `resetear` imprimen un **código inicial** (por ejemplo, `K7M-3QX-9TP`). La primera vez que la persona entra con ese código, la app le pide crear su contraseña (al menos 8 caracteres). Después la puede cambiar tocando su tarjeta, abajo a la izquierda. Ahí también está "Salir".
+
+- **Para probar:** la primera vez que corrés `npm start` sin ningún usuario, el servidor crea `candidato-demo`, `junior-demo` y `empresa-demo`, todas con la clave `1234`, y las muestra en la consola. Desactivalas antes de usar la app con gente real.
+- La sesión dura 12 horas. Cambiar la contraseña cierra las otras sesiones de esa persona.
+- Después de 5 intentos fallidos con un usuario, se bloquea un minuto.
+- Cada estudiante y cada junior ve solo sus informes. La empresa ve todos, guarda la configuración y puede borrar informes.
+- Para mostrar los tres perfiles a la vez en la misma compu, ver **`GUIA-DEMO.md`** (el truco de `candidato.localhost`, `junior.localhost` y `empresa.localhost`).
+
 ## Proveedor de IA
 
 Se elige en el `.env` con `LLM_PROVIDER`. El resto de la app no cambia.
@@ -69,18 +91,49 @@ Y `http://localhost:3000/api/diagnostico` suma, desde que arrancó el servidor, 
 
 Opcionales en el `.env`: `PROMPT_CACHE=off` lo apaga (los pedidos salen exactamente como antes) y `PROMPT_CACHE_TTL=1h` lo hace durar una hora con Claude por API (escribirlo cuesta el doble).
 
+## Antes de una demo: `npm run chequeo`
+
+Prueba de verdad todo lo que se usa en vivo, con la sesión de Claude y las keys de esta compu. No hay botón en la interfaz: se corre solo desde la consola (con o sin el servidor abierto; levanta su propia copia en otro puerto y no toca tus datos).
+
+```
+npm run chequeo               # todo, unos 2 minutos
+npm run chequeo -- --rapido   # sin las evaluaciones largas, unos 20 segundos
+```
+
+Revisa, en orden: la sesión de Claude Code y una respuesta corta; una evaluación real con Claude (con la empresa cargada y una transcripción de prueba); los respaldos (Claude por API y Gemini); cada key de Gemini Live (abre una sesión de voz y espera el primer audio), y una evaluación de punta a punta por el mismo camino que la app. Al final dice **LISTO PARA LA DEMO** o qué hay que resolver. Nunca imprime una key.
+
+### Cómo se protege la evaluación
+
+1. Arranca **Claude con tu suscripción** (`claude-sdk`). Lo normal es que tarde unos 20 segundos.
+2. Si a los 25 segundos todavía no terminó, o si falla antes, arranca **un segundo intento con Claude en paralelo**: por API si hay `ANTHROPIC_API_KEY` (no depende de tu suscripción) o, si no, Claude Code otra vez en un proceso nuevo. Gana el primero que entrega un informe válido y el otro se cancela.
+3. Si fallan los dos, sigue Claude por API (si no corrió) y por último Gemini.
+
+Se ajusta con `EVAL_CARRERA_MS`, `EVAL_SILENCIO_MS` y `LLM_EVAL_CADENA` en el `.env`.
+
+### Keys de respaldo para la voz
+
+`GEMINI_LIVE_API_KEY_2` y `GEMINI_LIVE_API_KEY_3`: keys de **otras cuentas de Google** (cada cuenta tiene su propia cuota gratis). Si la `GEMINI_API_KEY` se queda sin cuota o Google la rechaza, la llamada sigue con la siguiente; si pasa a mitad de la llamada, se reconecta con la otra key y el cliente sigue desde donde quedó. Ojo: el error "mucha demanda" (503) es del lado de Google y no depende de la key.
+
+### Registro
+
+Cada consulta a la IA deja una línea en la terminal y en `data/logs/ia-AAAA-MM-DD.log`: proveedor, modelo, cuánto tardó, a los cuántos segundos llegó el primer texto y, si falla, qué significa y qué hacer. Todos los intentos de una misma evaluación comparten un código (`#a1b2`) y al final hay un resumen (`✓ evaluación lista con...` o `✗ la evaluación falló...`).
+
 ## Qué hay en cada perfil
 
 | Perfil | Qué hace |
 |---|---|
-| **Estudiante** | Elige un escenario, habla por voz con un cliente simulado y recibe un informe con puntaje, evidencia, fortalezas y puntos a mejorar. |
+| **Estudiante** (Candidato) | Elige un escenario, habla por voz con un cliente simulado y recibe un informe con puntaje, evidencia, fortalezas y puntos a mejorar. |
 | **Junior** | Chat con el mentor: entender el código, cómo trabaja el equipo, encarar un ticket y revisar antes del PR. Explica lo técnico y el porqué de negocio. |
 | **Empresa** | El senior carga el contexto, los archivos del repo, los escenarios y los criterios de evaluación. También ve los informes de los candidatos. |
 
 ## Estructura
 
 ```
-server.js               servidor (sirve la app, reenvía al proveedor de IA, guarda datos)
+backend/server.js       arranque del servidor (sirve la app, reenvía al proveedor de IA, guarda datos)
+backend/src/routes.js   orden de chequeos de la API (origen, sesión, rutas de cada módulo)
+backend/src/config/     .env, rutas de carpetas y límites
+backend/src/shared/     lo común: cadena de IA (llm/), HTTP (http/), voz (voz/), utilidades
+backend/src/modules/    auth, ia, empresa, simulaciones y mentor; cada uno con routes/controller/service/repository
 .env                    API key y configuración
 data/                   configuración de la empresa e informes (se crean solos)
 public/index.html
@@ -149,7 +202,9 @@ Si el motor elegido no está configurado (falta su key), la app usa el siguiente
 3. Reiniciá el servidor. En la terminal tiene que aparecer `Voz: gemini-live · modelo gemini-3.8-live · voz Kore / Orus (voz a voz nativa)`.
 4. Usá **Chrome o Edge** y, si podés, **auriculares**: con parlantes, el cancelador de eco del navegador suele alcanzar, pero si el cliente "se interrumpe solo" es porque el micrófono escucha su propia voz.
 
-**Voces:** con `GEMINI_LIVE_VOICE=auto` se elige femenina (`Kore`) o masculina (`Orus`) según el campo "Voz del cliente" del escenario o el nombre del cliente. Se pueden cambiar con `GEMINI_LIVE_VOICE_FEMENINA` / `GEMINI_LIVE_VOICE_MASCULINA`, o fijar una sola con `GEMINI_LIVE_VOICE=Aoede` (otras: Leda, Zephyr, Puck, Charon, Fenrir; se escuchan en https://aistudio.google.com/live). Todas hablan español: el acento rioplatense lo da la consigna del escenario.
+**Voces:** con `GEMINI_LIVE_VOICE=auto` se elige femenina (`Kore`) o masculina (`Orus`) según el campo "Voz del cliente" del escenario o el nombre del cliente. Se pueden cambiar con `GEMINI_LIVE_VOICE_FEMENINA` / `GEMINI_LIVE_VOICE_MASCULINA`, o fijar una sola con `GEMINI_LIVE_VOICE=Aoede` (otras: Leda, Zephyr, Puck, Charon, Fenrir; se escuchan en https://aistudio.google.com/live). Todas hablan español con acento neutro: el rioplatense lo da la consigna (la sección "TU ACENTO" de `prompts.js`, con pronunciación y entonación, más un recordatorio al final de las instrucciones, porque con una sola línea el modelo lo pierde a mitad de la llamada). Aun así, con minutos de audio acumulado la voz vuelve a su tonada de fábrica, así que cada 2 minutos la app abre en un silencio una sesión nueva con lo hablado y le pasa el micrófono, sin corte.
+
+**Sonido de teléfono:** en las llamadas con un cliente suena un timbre y el candidato atiende con el botón **Atender**; en las salientes ("el candidato llama") el candidato toca **Llamar** y suena el tono de llamada hasta que el cliente habla. Mientras habla el cliente suena de fondo un ruido de línea suave, como el aire del otro lado. Los tonos los genera el navegador, sin archivos de audio. Con Gemini Live, además, la voz del cliente pasa por un filtro telefónico moderado; se apaga en *Empresa → Escenarios → Voz telefónica* (`vozTelefonica` en la configuración).
 
 **Cómo funciona:**
 - El servidor genera un **token efímero** en `POST /api/voz/token` (un solo uso, 1 minuto para conectarse, 30 minutos de vida, atado a `GEMINI_LIVE_MODEL`). La `GEMINI_API_KEY` nunca llega al navegador.
@@ -193,8 +248,8 @@ La diferencia de latencia es chica; lo que cambia es cómo suena. En las pruebas
 - La public key llega al navegador (es pública por diseño). La private key nunca se usa.
 
 **Cómo probarlo:**
-1. Perfil Estudiante → elegí un escenario. La pantalla previa dice "Voz natural con Vapi".
-2. Empezá la conversación y aceptá el permiso del micrófono.
+1. Entrá como candidato y elegí un escenario. En la pantalla previa, probá el micrófono y el sonido.
+2. Empezá la llamada, aceptá el permiso del micrófono si lo pide y tocá **Atender** cuando suene.
 3. El cliente habla primero. Respondele con naturalidad; probá interrumpirlo hablando encima (o tocando la esfera).
 4. Despedite: cuando el cliente también se despide, la llamada se corta sola y aparece el informe. También podés tocar **Colgar**.
 
@@ -215,4 +270,6 @@ El SDK de Vapi se sirve desde `public/vendor/vapi/` (copia fija de `@vapi-ai/web
 - Para Gemini Live, el navegador recibe solo un token efímero de un uso que vence en 30 minutos y sirve únicamente para el modelo de `GEMINI_LIVE_MODEL`.
 - El `.env` y los datos están en `.gitignore`.
 - El servidor escucha solo en `127.0.0.1` (no queda expuesto en la red).
+- Las contraseñas se guardan con `scrypt` y sal (`data/usuarios.json`) y las sesiones, como `sha256` del token (`data/sesiones.json`). La cookie es `HttpOnly`. Los pedidos que modifican algo desde otro origen se rechazan.
+- Los scripts locales (`chequeo`, `probar-ia`, evals) entran con la llave de `data/llave-local.txt`, que se crea sola. No la compartas.
 - Los datos de los informes son de ejemplo: no cargues datos reales de personas.

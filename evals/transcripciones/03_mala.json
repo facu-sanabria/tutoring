@@ -1,0 +1,32 @@
+{
+  "nombre": "03_mala",
+  "descripcion": "Minimiza, promete un arreglo sin datos, reinicia producción a ciegas, culpa a un compañero delante de soporte y cierra sin plan.",
+  "empresa": "nodo",
+  "escenarioId": "incidente-viernes",
+  "candidato": "Estudiante de prueba",
+  "minutos": 3,
+  "esperado": {
+    "total": { "min": 0, "max": 30 },
+    "criterios": {
+      "Escucha y claridad": { "min": 1, "max": 2 },
+      "Empatía y contención": { "min": 1, "max": 2 },
+      "Cierre y próximos pasos": { "min": 1, "max": 2 },
+      "Criterio y autonomía": { "min": 1, "max": 1 },
+      "Receptividad": { "min": 1, "max": 2 },
+      "Curiosidad": { "min": 1, "max": 2 },
+      "Iniciativa": { "min": 1, "max": 2 }
+    }
+  },
+  "transcripcion": [
+    { "role": "assistant", "text": "Hola, soy Agustina Ferrari, de soporte. Te llamo porque varios pacientes no recibieron el recordatorio de los turnos de mañana." },
+    { "role": "user", "text": "Uh, otra vez. Seguro es algo que rompió Martín, siempre hace deploys sin probar. Ya lo reinicio y listo." },
+    { "role": "assistant", "text": "¿Reiniciás qué? Estoy preocupada, hay turnos mañana temprano y los consultorios me escriben." },
+    { "role": "user", "text": "No te preocupes, no es nada. Reinicio el worker en producción y en diez minutos anda todo." },
+    { "role": "assistant", "text": "¿Y estás seguro de que es eso? ¿No habría que ver qué pasó?" },
+    { "role": "user", "text": "Sí, sí, es eso. Es un bug de siempre." },
+    { "role": "assistant", "text": "¿Y a los consultorios qué les digo?" },
+    { "role": "user", "text": "Que fue culpa de Martín y que ya está arreglado." },
+    { "role": "assistant", "text": "Bueno... ¿me confirmás algo hoy?" },
+    { "role": "user", "text": "El lunes lo vemos. Chau." }
+  ]
+}

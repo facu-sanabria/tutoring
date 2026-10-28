@@ -46,7 +46,12 @@ h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.01em}
 .hist button.on{background:var(--card);font-weight:500}
 .hist .empty{font-size:13px;color:var(--muted);padding:4px 8px}
 .spacer{flex:1}
-.me{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 10px}
+.me-wrap{position:relative}
+.me{display:flex;align-items:center;gap:10px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:9px 10px;width:100%;text-align:left}
+.me:hover{background:var(--soft)}
+.me-menu{position:absolute;left:0;right:0;bottom:calc(100% + 6px);background:var(--card);border:1px solid var(--line-2);border-radius:12px;padding:5px;display:flex;flex-direction:column;box-shadow:0 12px 30px -16px rgba(40,30,70,.35);z-index:5}
+.me-menu button{text-align:left;padding:8px 10px;border-radius:8px;font-size:13.5px}
+.me-menu button:hover{background:var(--soft)}
 .av{width:32px;height:32px;border-radius:50%;background:var(--lav-soft);color:var(--lav-ink);display:grid;place-items:center;font-weight:600;font-size:13px;flex:none}
 .me b{display:block;font-size:13.5px;font-weight:600}
 .me span{font-size:12px;color:var(--muted)}
@@ -139,6 +144,7 @@ h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.01em}
 .voice-row select{border:1px solid var(--line-2);border-radius:10px;padding:7px 10px;background:#FBFAFD;max-width:100%}
 
 /* ---------- Call ---------- */
+#view:has(> .call){height:100%}
 .call{display:flex;flex-direction:column;align-items:center;min-height:100%;padding:8px 0 10px}
 .call-top{width:100%;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap}
 .call-top .who b{display:block;font-weight:600}
@@ -148,6 +154,7 @@ h1,h2,h3{margin:0;text-wrap:balance;letter-spacing:-.01em}
 .state-label{font-size:13px;font-weight:600;letter-spacing:.06em;text-transform:uppercase;color:var(--lav-ink)}
 .caption{max-width:600px;text-align:center;font-size:19px;line-height:1.5;min-height:3em;text-wrap:balance}
 .caption.dim{color:var(--muted);font-size:16px;min-height:1.5em}
+.call.sonando .controls,.call.sonando .caption,.call.sonando .typebar{display:none}
 /* Mientras el cliente piensa: puntitos latiendo, para que no parezca colgado. */
 .caption.pensando{color:var(--muted);letter-spacing:.3em;animation:latir 1.2s ease-in-out infinite}
 @keyframes latir{0%,100%{opacity:.35}50%{opacity:1}}
@@ -341,3 +348,49 @@ details.tx .transcript{border:0;margin-top:8px;padding-top:0;max-width:none}
 }
 .status{cursor:pointer}
 .status.warn{color:var(--amber)} .status.warn i{background:var(--amber)}
+
+/* ---------- Ingreso y cuenta ---------- */
+.sin-sesion .side,.sin-sesion .top{display:none}
+.sin-sesion .shell{grid-template-columns:minmax(0,1fr)}
+.auth-card{max-width:400px;margin:7vh auto 0;display:flex;flex-direction:column;gap:16px;padding:8px 4px}
+.auth-card h1{font-size:24px}
+.auth-card .logo{padding:0}
+.auth-form{display:flex;flex-direction:column;gap:14px;max-width:400px}
+.auth-card .btn,.auth-form .btn{width:100%}
+.form-err{margin:0;background:var(--red-soft);color:var(--red);border-radius:10px;padding:9px 12px;font-size:13.5px}
+.form-ok{margin:0;background:var(--green-soft);color:var(--green);border-radius:10px;padding:9px 12px;font-size:13.5px}
+
+/* Un color por rol: en la demo con tres ventanas se ve de un vistazo cuál es cuál. */
+body[data-rol="junior"]{--lav:#4F86C6;--lav-2:#B5CDEB;--lav-soft:#EAF2FB;--lav-ink:#2F5F96}
+body[data-rol="empresa"]{--lav:#3E9A6A;--lav-2:#B4DEC6;--lav-soft:#E8F6EE;--lav-ink:#256B47}
+
+/* Llamada entrante: suena el timbre y se atiende con un botón */
+.orb.big.ringing{animation:sonar 1.5s ease-in-out infinite}
+@keyframes sonar{0%,40%,100%{transform:rotate(0)}5%,15%,25%{transform:rotate(-5deg)}10%,20%,30%{transform:rotate(5deg)}}
+.atender{height:52px;border-radius:26px;padding:0 26px;background:var(--green);color:#fff;font-weight:600;display:flex;align-items:center;gap:8px;margin:4px 0 6px}
+.atender:hover:not(:disabled){filter:brightness(.92)}
+.atender:disabled{opacity:.55;cursor:wait}
+.atender svg{width:18px;height:18px;stroke:#fff;fill:none;stroke-width:2}
+.chk{display:flex;align-items:flex-start;gap:10px;margin:0 0 18px;font-size:14px;line-height:1.45;cursor:pointer}
+.chk input{width:18px;height:18px;margin-top:2px;flex:none;accent-color:var(--ink)}
+
+/* Prueba de audio antes de la llamada */
+.audio{border:1px solid var(--line);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.audio-fila{display:grid;grid-template-columns:84px minmax(0,1fr) 160px;gap:12px;align-items:center}
+.audio-lbl{font-size:13.5px;color:var(--muted)}
+.audio select{border:1px solid var(--line-2);border-radius:10px;padding:7px 10px;background:#FBFAFD;width:100%;min-width:0;font:inherit;font-size:13.5px;text-overflow:ellipsis}
+.audio-sis{font-size:13.5px}
+.audio-acc{display:flex;align-items:center}
+.audio-acc .btn-o{width:100%;justify-content:center}
+.nivel{width:100%;height:6px;border-radius:3px;background:var(--soft);overflow:hidden}
+.nivel i{display:block;height:100%;width:0;border-radius:3px;background:linear-gradient(90deg,var(--lav-2),var(--lav));transition:width .06s linear}
+.audio-msg{margin:0;font-size:13px;color:var(--muted)}
+.audio-msg:empty{display:none}
+.audio-msg.bien{color:var(--green)}
+.audio-msg.mal{color:var(--red)}
+.info.una{grid-template-columns:1fr}
+@media (max-width:430px){
+  .audio-fila{grid-template-columns:1fr;gap:6px}
+}
+.audio select{appearance:none;-webkit-appearance:none;padding-right:32px;cursor:pointer;
+  background:#FBFAFD url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M5 8l5 5 5-5' fill='none' stroke='%238B8896' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat right 10px center/14px}

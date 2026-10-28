@@ -11,7 +11,7 @@ import { fileURLToPath } from "node:url";
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "tutoring-probar-"));
 
-const proc = spawn(process.execPath, [path.join(RAIZ, "server.js")], {
+const proc = spawn(process.execPath, [path.join(RAIZ, "backend", "server.js")], {
   cwd: RAIZ,
   env: { ...process.env, PORT: "0", DATA_DIR: dataDir },
   stdio: ["ignore", "pipe", "pipe"]
@@ -29,7 +29,9 @@ const puerto = await new Promise((res, rej) => {
 });
 
 console.log("\n  Probando la IA con una consulta mínima…\n");
-const d = await (await fetch(`http://127.0.0.1:${puerto}/api/diagnostico`)).json();
+// Llave que escribe el servidor al arrancar (ver backend/src/modules/auth/sesion.js): sin ella la API responde 401.
+const llaveLocal = dir => { try { return fs.readFileSync(path.join(dir, "llave-local.txt"), "utf8").trim(); } catch (_) { return ""; } };
+const d = await (await fetch(`http://127.0.0.1:${puerto}/api/diagnostico`, { headers: { "x-llave-local": llaveLocal(dataDir) } })).json();
 const linea = (rol, p) => {
   if (!p) return console.log(`  ${rol}: (sin respaldo: LLM_FALLBACK vacío)`);
   const extra = p.plan ? ` · plan ${p.plan}` : "";

@@ -5,7 +5,8 @@
      - "browser":     voz del navegador (reconocimiento + síntesis de Chrome/Edge) y la IA vía /api/messages.
 
    Interfaz:
-     const engine = T.voice.create(provider, { voiceName, vapiPublicKey, vapiAssistantId, vapi, geminiLive, escenario });
+     const engine = T.voice.create(provider, { voiceName, vapiPublicKey, vapiAssistantId, vapi, geminiLive, escenario,
+                                               telefono, entrada, salida });   // los tres últimos, solo Gemini Live
      engine.start({ system, firstUserTurn, onEvent })
      engine.sendText(texto)     // escribir en vez de hablar
      engine.interrupt()         // cortar al cliente y pasar a escuchar
@@ -392,6 +393,8 @@ T.voice = (function () {
       await startLevel();
       if (ended) return;   // colgó mientras pedíamos el micrófono
       iniciarVigiaRec();
+      // Llamada entrante (firstUserTurn null): el candidato atiende y habla primero.
+      if (firstUserTurn === null) { listen(); return; }
       agregarHistorial("user", firstUserTurn || "Hola.");
       respond();
     };
@@ -584,11 +587,13 @@ T.voice = (function () {
       const femenina = generoCliente(opts.escenario) === "f";
       const minutos = Number(opts.escenario && opts.escenario.duracion) || 5;
       const instrucciones = String(system || "")
-        + "\n\nPARA EMPEZAR\n" + String(firstUserTurn || "Hablá vos primero, corto.").replace(/^\[|\]$/g, "")
+        + "\n\nPARA EMPEZAR\n" + (firstUserTurn === null
+          ? "Esperá a que te atiendan y te saluden; recién ahí hablá."
+          : String(firstUserTurn || "Hablá vos primero, corto.").replace(/^\[|\]$/g, ""))
         + "\n\nPARA TERMINAR\nDespués de despedirte y escribir [FIN], usá la herramienta endCall para cortar.";
       return {
         name: "Tutoring - cliente simulado",
-        firstMessageMode: "assistant-speaks-first-with-model-generated-message",
+        firstMessageMode: firstUserTurn === null ? "assistant-waits-for-user" : "assistant-speaks-first-with-model-generated-message",
         model: {
           provider: v.modelProvider || "anthropic",
           model: v.model || "claude-haiku-4-5-20251001",
@@ -628,7 +633,12 @@ T.voice = (function () {
       try { vapi = new Vapi(opts.vapiPublicKey); }
       catch (e) { fallarInicio(mensajeErrorVapi(e)); return; }
 
-      vapi.on("call-start", () => { conectado = true; setState("listening"); });
+      vapi.on("call-start", () => {
+        conectado = true;
+        // Si la silenciaron antes de conectar (mientras suena el timbre), Vapi todavía no existía.
+        if (muted) { try { vapi.setMuted(true); } catch (_) {} }
+        setState("listening");
+      });
       vapi.on("speech-start", () => { if (rolActual === "user") cerrarTurno(); setState("speaking"); });
       vapi.on("speech-end", () => {
         setState("listening");
@@ -718,6 +728,8 @@ T.voice = (function () {
   const GL_SALIDA_HZ = 24000;    // lo que devuelve: PCM 16 bits mono, 24 kHz
   const GL_T_SETUP = 15000;      // si no confirma la sesión en este tiempo, no conectó
   const GL_T_MARGEN = 0.06;      // colchón (s) al empezar a reproducir, para que no se entrecorte
+  // Cada cuánto se renueva la sesión para que no se pierda el acento (ver quizasRenovar). Las pruebas lo achican.
+  const AJUSTES = { renovarMs: 120000 };
 
   // Corre en el hilo de audio: baja el micrófono a 16 kHz (promediando, que también filtra),
   // lo pasa a PCM de 16 bits y lo manda en bloques de 40 ms junto con el volumen.
@@ -786,6 +798,9 @@ registerProcessor("mic-pcm", MicPcm);`;
     this.history = [];
     let emit = () => {}, ended = false, state = "idle", muted = false, conectado = false;
     let ws = null, token = null, handle = null, reintentos = 0, setupTimer = null;
+    // Keys de Gemini Live: el servidor dice cuál usó (número, nunca la key) y cuántas hay.
+    // Si Google corta por cuota o rechazo, pedimos un token con la siguiente.
+    let keyIdx = null, keysTotal = 1, cambiosDeKey = 0, contextoRetomado = "";
     let system = "", primerTurno = "";
     let media = null, ctx = null, nodoMic = null, salida = null, analizador = null, raf = 0, nivelMic = 0, finDeAudioMandado = false;
     let fuentes = new Set(), cola = 0;          // audio del cliente ya programado para sonar
@@ -859,6 +874,7 @@ registerProcessor("mic-pcm", MicPcm);`;
       if (textoCliente) cerrarCliente();
       if (finPendiente) return intentarCerrar();
       setState("listening");
+      quizasRenovar();
     }
     // El cliente se despidió: cortamos cuando termina de sonar la despedida.
     function intentarCerrar(desde) {
@@ -922,21 +938,45 @@ registerProcessor("mic-pcm", MicPcm);`;
       }
     }
 
+    // Tope de seguridad: al cumplirse, el cliente se despide solo (ver CÓMO TERMINAR en prompts.js).
+    let capTimer = null, capIniciado = false, maxMinutos = 15;
+    function iniciarTope() {
+      if (capIniciado) return;
+      capIniciado = true;
+      capTimer = setTimeout(() => {
+        if (ended) return;
+        mandar({ realtimeInput: { text: "[SISTEMA] Se acabó el tiempo. Despedite ahora en una oración y llamá a colgar." } });
+        setTimeout(() => { if (!ended) self.stop("fin"); }, 45000);
+      }, Math.max(1, maxMinutos) * 60000);
+    }
+
     function sesionLista() {
       clearTimeout(setupTimer);
+      if (reintentos) { console.info("[voz] reconectado", new Date().toLocaleTimeString("es-AR")); aviso(""); }
       reintentos = 0;
+      if (!handle) sesionDesde = Date.now();   // sesión nueva (no retomada): desde acá cuenta para renovarla
       if (conectado) { setState("listening"); return; }   // reconexión: la conversación sigue donde estaba
       conectado = true;
+      iniciarTope();
+      // Llamada entrante: el candidato atiende y habla primero, no hay pie.
+      if (primerTurno === null) { setState("listening"); return; }
       // El cliente habla primero: le damos la consigna de arranque como si fuera el pie.
       setState("thinking");
       mandar({ realtimeInput: { text: primerTurno } });
     }
 
-    function setup() {
+    // retomado: lo hablado hasta acá, para una sesión nueva. "renovada": la llamada sigue sin corte (ver quizasRenovar).
+    function setup(retomado = contextoRetomado, como = "cortada", conHandle = handle) {
       const instrucciones = system
         + "\n\nIMPORTANTE (esta llamada es solo por voz)\n"
         + "- No digas ni leas en voz alta marcas como [FIN]. Para cortar, cuando ya te despediste, llamá a la herramienta colgar.\n"
-        + "- Si te hablan encima, callate y escuchá; después seguí desde ahí.";
+        + "- Si te hablan encima, callate y escuchá; después seguí desde ahí.\n"
+        + "- Cuando pensás o dudás (\"mmmm...\", \"eeeh...\", \"a ver...\"), decilo despacio y hacé un silencio real de un segundo antes de seguir: que se escuche que estás pensando."
+        + "\n- Tu acento rioplatense es igual en el último turno que en el primero: la y y la ll suenan \"sh\" (solo el sonido: las palabras se escriben como siempre), entonación porteña y voseo. No lo neutralices aunque la llamada se alargue."
+        + (!retomado ? ""
+          : como === "renovada"
+          ? "\n\nLA LLAMADA YA ESTÁ EN CURSO. Esto es lo que se habló hasta ahora (no saludes de nuevo, no te presentes ni repitas lo dicho; esperá lo próximo que diga la otra persona y seguí desde ahí, con el mismo ánimo):\n" + retomado
+          : "\n\nLA LLAMADA SE CORTÓ Y SE RETOMÓ. Esto es lo que ya se habló (no te vuelvas a presentar ni repitas lo dicho; seguí desde ahí, como si nada):\n" + retomado);
       const s = {
         model: "models/" + (gl.model || "gemini-3.8-live"),
         generationConfig: {
@@ -944,40 +984,94 @@ registerProcessor("mic-pcm", MicPcm);`;
           speechConfig: { voiceConfig: { prebuiltVoiceConfig: { voiceName: voz() } } }
         },
         systemInstruction: { parts: [{ text: instrucciones }] },
-        tools: [{ functionDeclarations: [{ name: "colgar", description: "Corta la llamada. Usala solo después de despedirte, cuando la conversación llegó a un cierre natural." }] }],
+        tools: [{ functionDeclarations: [{ name: "colgar", description: "Corta la llamada. Usala solo después de despedirte, cuando la situación se resolvió o cuando te cansaste." }] }],
         inputAudioTranscription: {},
         outputAudioTranscription: {},
         realtimeInputConfig: { automaticActivityDetection: { prefixPaddingMs: 40, silenceDurationMs: 500 } },
         // Una conexión dura unos 10 minutos: con esto se retoma la misma conversación.
-        sessionResumption: handle ? { handle } : {},
+        sessionResumption: conHandle ? { handle: conHandle } : {},
         contextWindowCompression: { slidingWindow: {} }
       };
       return { setup: s };
     }
 
-    async function pedirToken() {
-      const r = await fetch("/api/voz/token", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+    // descartar: { idx, motivo } cuando la key que veníamos usando falló (cuota, rechazo).
+    async function pedirToken(descartar) {
+      const body = descartar ? JSON.stringify({ descartar: descartar.idx, motivo: String(descartar.motivo || "").slice(0, 160) }) : "{}";
+      const r = await fetch("/api/voz/token", { method: "POST", headers: { "content-type": "application/json" }, body });
       let j = null; try { j = await r.json(); } catch (_) {}
+      if (r.status === 401 && j && j.error && j.error.type === "sin_ingreso") T.api.sinSesion();
       if (!r.ok || !j || !j.token) throw new Error((j && j.error && (j.error.message || j.error)) || "El servidor no pudo generar el token de Gemini Live.");
+      if (j.maxMinutos) maxMinutos = Number(j.maxMinutos) || maxMinutos;
+      keyIdx = Number.isInteger(j.keyIndex) ? j.keyIndex : null;
+      keysTotal = Number(j.keys) || 1;
       return j.token;
     }
+    // ¿El corte fue por la key (cuota, rechazo de Google)? Ahí sí sirve probar con otra cuenta.
+    const esProblemaDeKey = r => /quota|exceeded|exhausted|resource_exhausted|rate limit|429|api key|api_key|unauthenticated|permission|billing/i.test(String(r || ""));
+    const quedaOtraKey = () => keyIdx != null && keysTotal > 1 && cambiosDeKey < keysTotal - 1;
 
-    function abrir() {
-      const url = (gl.wsUrl || "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained")
-        + "?access_token=" + encodeURIComponent(token);
-      const yo = ws = new WebSocket(url);
-      clearTimeout(setupTimer);
-      setupTimer = setTimeout(() => { if (ws === yo && !ended) { try { yo.close(); } catch (_) {} cayo(yo, 4000, "timeout"); } }, GL_T_SETUP);
-      yo.onopen = () => { if (ws === yo) mandar(setup()); };
+    const urlLive = tok => (gl.wsUrl || "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContentConstrained")
+      + "?access_token=" + encodeURIComponent(tok);
+    async function leer(ev) {
+      let txt = ev.data;
+      if (typeof txt !== "string") { try { txt = await (txt.text ? txt.text() : new Response(txt).text()); } catch (_) { return null; } }
+      try { return JSON.parse(txt); } catch (_) { return null; }
+    }
+    // Los mensajes de un WebSocket cuentan solo mientras sea el de la llamada.
+    function escuchar(yo) {
       yo.onmessage = async ev => {
         if (ws !== yo) return;
-        let txt = ev.data;
-        if (typeof txt !== "string") { try { txt = await (txt.text ? txt.text() : new Response(txt).text()); } catch (_) { return; } }
-        let m; try { m = JSON.parse(txt); } catch (_) { return; }
-        alMensaje(m);
+        const m = await leer(ev);
+        if (m && ws === yo) alMensaje(m);
       };
       yo.onclose = ev => cayo(yo, ev.code, ev.reason);
       yo.onerror = () => {};
+    }
+    function abrir() {
+      const yo = ws = new WebSocket(urlLive(token));
+      clearTimeout(setupTimer);
+      setupTimer = setTimeout(() => { if (ws === yo && !ended) { try { yo.close(); } catch (_) {} cayo(yo, 4000, "timeout"); } }, GL_T_SETUP);
+      yo.onopen = () => { if (ws === yo) mandar(setup()); };
+      escuchar(yo);
+    }
+
+    // ----- Renovar la sesión para que no se pierda el acento -----
+    // Con varios minutos de audio acumulado, la voz de Gemini vuelve a su tonada neutra de fábrica aunque
+    // la consigna diga otra cosa (las palabras siguen siendo argentinas; lo que se pierde es cómo suena).
+    // Una sesión nueva arranca con el acento firme. Cada AJUSTES.renovarMs, cuando el cliente terminó de
+    // hablar, abrimos en paralelo una sesión nueva con lo hablado como texto y, cuando está lista, le
+    // pasamos el micrófono y cerramos la vieja: no hay corte. Si mientras tanto alguien habló, se descarta
+    // y se prueba en el próximo silencio.
+    let renovando = null, sesionDesde = 0;
+    async function quizasRenovar() {
+      if (renovando || ended || !conectado || finPendiente || state !== "listening") return;
+      if (Date.now() - sesionDesde < AJUSTES.renovarMs || self.history.length < 2) return;
+      const marca = self.history.length;
+      const yo = renovando = { ws: null };
+      let tok;
+      try { tok = await pedirToken(); }
+      catch (_) { renovando = null; sesionDesde = Date.now(); return; }   // sin token, probamos en la próxima vuelta
+      if (ended || renovando !== yo) return;
+      const contexto = self.history.map(t => `${t.role === "user" ? "LA OTRA PERSONA" : "VOS"}: ${t.content}`).join("\n");
+      const nuevo = yo.ws = new WebSocket(urlLive(tok));
+      const descartar = () => { clearTimeout(espera); if (renovando === yo) renovando = null; try { nuevo.close(1000); } catch (_) {} };
+      const espera = setTimeout(descartar, GL_T_SETUP);
+      nuevo.onopen = () => { try { nuevo.send(JSON.stringify(setup(contexto, "renovada", null))); } catch (_) { descartar(); } };
+      nuevo.onclose = () => { clearTimeout(espera); if (renovando === yo) renovando = null; };
+      nuevo.onerror = () => {};
+      nuevo.onmessage = async ev => {
+        const m = await leer(ev);
+        if (!m || !m.setupComplete || renovando !== yo) return;
+        clearTimeout(espera);
+        if (ended || self.history.length !== marca || textoUsuario.trim() || generando || state !== "listening") return descartar();
+        const viejo = ws;
+        renovando = null;
+        ws = nuevo; handle = null; sesionDesde = Date.now();
+        escuchar(nuevo);
+        try { viejo.close(1000); } catch (_) {}
+        console.info("[voz] sesión renovada para mantener el acento", new Date().toLocaleTimeString("es-AR"));
+      };
     }
 
     // Se cerró el WebSocket sin que colgáramos nosotros.
@@ -985,10 +1079,40 @@ registerProcessor("mic-pcm", MicPcm);`;
       if (ws !== yo || ended) return;
       ws = null;
       clearTimeout(setupTimer);
-      if (!conectado) return fallarInicio(code === 4000 ? "Gemini Live no respondió a tiempo. Revisá la conexión a internet." : mensajeErrorGemini(reason, gl.model));
+      if (!conectado) {
+        // No llegó a conectar por la key (cuota o rechazo): probamos con la key de respaldo antes de rendirnos.
+        if (code !== 4000 && esProblemaDeKey(reason) && quedaOtraKey()) {
+          cambiosDeKey++;
+          console.warn("[voz] la key de Gemini Live falló al conectar, pruebo con la de respaldo:", String(reason || "").slice(0, 120));
+          try { token = await pedirToken({ idx: keyIdx, motivo: reason }); }
+          catch (e) { return fallarInicio(e.message); }
+          if (ended) return;
+          abrir();
+          return;
+        }
+        return fallarInicio(code === 4000 ? "Gemini Live no respondió a tiempo. Revisá la conexión a internet." : mensajeErrorGemini(reason, gl.model));
+      }
+      // Se cortó a mitad de la llamada por la key: seguimos con otra cuenta. La sesión de Google no se puede
+      // retomar con otra key, así que abrimos una nueva y le pasamos lo que se habló hasta acá.
+      if (esProblemaDeKey(reason) && quedaOtraKey()) {
+        cambiosDeKey++;
+        console.warn("[voz] la key de Gemini Live se quedó sin cuota a mitad de la llamada, sigo con la de respaldo");
+        aviso("Se cortó la voz un momento. Reconectando…");
+        cortarAudio(); generando = false;
+        if (textoCliente) cerrarCliente();
+        handle = null;
+        contextoRetomado = self.history.map(t => `${t.role === "user" ? "LA OTRA PERSONA" : "VOS"}: ${t.content}`).join("\n");
+        try { token = await pedirToken({ idx: keyIdx, motivo: reason }); } catch (_) {}
+        if (ended) return;
+        setState("connecting");
+        abrir();
+        return;
+      }
       // Ya estábamos hablando: Google corta cada ~10 minutos o se cayó la red. Retomamos la sesión.
       if (handle && reintentos < 2) {
         reintentos++;
+        console.warn("[voz] se cortó la sesión, reconectando", reintentos, new Date().toLocaleTimeString("es-AR"));
+        aviso("Se cortó la conexión con la voz un momento. Reconectando…");
         cortarAudio(); generando = false;
         if (textoCliente) cerrarCliente();
         try { token = await pedirToken(); } catch (_) {}
@@ -1014,9 +1138,17 @@ registerProcessor("mic-pcm", MicPcm);`;
       if (ctx.state === "suspended") ctx.resume().catch(() => {});
       salida = ctx.createGain();
       analizador = ctx.createAnalyser(); analizador.fftSize = 512;
-      salida.connect(analizador); analizador.connect(ctx.destination);
+      salida.connect(analizador);
+      telefono(ctx, analizador, opts.telefono !== false).connect(ctx.destination);
+      // Salida y micrófono elegidos en la prueba de audio del brief; si ya no están, los del sistema.
+      if (opts.salida && ctx.setSinkId) ctx.setSinkId(opts.salida).catch(() => {});
+      const audio = { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 };
       try {
-        media = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true, channelCount: 1 } });
+        try { media = await navigator.mediaDevices.getUserMedia({ audio: opts.entrada ? Object.assign({ deviceId: { exact: opts.entrada } }, audio) : audio }); }
+        catch (e) {
+          if (!opts.entrada || !/Overconstrained|NotFound/.test(e && e.name)) throw e;
+          media = await navigator.mediaDevices.getUserMedia({ audio });
+        }
       } catch (_) {
         muted = true;
         aviso("No hay acceso al micrófono. Permitilo en el navegador o escribí tus respuestas.", { code: "mic" });
@@ -1059,6 +1191,7 @@ registerProcessor("mic-pcm", MicPcm);`;
       cancelAnimationFrame(raf); raf = 0;
       cortarAudio();
       if (ws) { const w = ws; ws = null; try { w.close(1000); } catch (_) {} }
+      if (renovando) { const r = renovando; renovando = null; if (r.ws) { try { r.ws.close(1000); } catch (_) {} } }
       if (nodoMic) { try { nodoMic.port.onmessage = null; nodoMic.disconnect(); } catch (_) {} }
       if (media) media.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
       if (ctx) ctx.close().catch(() => {});
@@ -1069,8 +1202,9 @@ registerProcessor("mic-pcm", MicPcm);`;
     this.start = async function ({ system: sys, firstUserTurn, onEvent }) {
       emit = onEvent || emit;
       system = sys || "";
-      primerTurno = firstUserTurn || "Hablá vos primero, corto.";
+      primerTurno = firstUserTurn === null ? null : (firstUserTurn || "Hablá vos primero, corto.");
       ended = false; conectado = false; finPendiente = false; handle = null;
+      cambiosDeKey = 0; contextoRetomado = "";
       self.history = [];
       setState("connecting");
       if (typeof WebSocket === "undefined" || !(window.AudioContext || window.webkitAudioContext)) {
@@ -1130,10 +1264,99 @@ registerProcessor("mic-pcm", MicPcm);`;
     };
   }
 
+  // Voz "de teléfono", moderada: un teléfono real deja pasar de 300 a 3400 Hz; acá es un poco más
+  // ancho para que se entienda con los parlantes de una notebook. Devuelve el nodo de salida.
+  function telefono(ctx, entrada, prendido) {
+    if (!prendido) return entrada;
+    const graves = ctx.createBiquadFilter(); graves.type = "highpass"; graves.frequency.value = 280;
+    const agudos = ctx.createBiquadFilter(); agudos.type = "lowpass"; agudos.frequency.value = 3800;
+    const medios = ctx.createBiquadFilter(); medios.type = "peaking"; medios.frequency.value = 1700; medios.Q.value = 0.8; medios.gain.value = 4;
+    const comp = ctx.createDynamicsCompressor(); comp.threshold.value = -24; comp.ratio.value = 4;
+    entrada.connect(graves); graves.connect(agudos); agudos.connect(medios); medios.connect(comp);
+    return comp;
+  }
+
+  // Tonos de llamada, generados con el navegador (sin archivos de audio). Devuelve { parar() }.
+  // `salida`: el deviceId del parlante o auricular elegido (si no, el del sistema).
+  //   "entrante": el timbre de un teléfono que suena (dos ráfagas cortas y una pausa).
+  //   "saliente": el tono de llamada de Argentina (425 Hz, 1 s sonando y 4 s de silencio).
+  function tono(tipo, salida) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return { parar() {} };
+    const ctx = new AC();
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    if (salida && ctx.setSinkId) ctx.setSinkId(salida).catch(() => {});
+    const saliente = tipo === "saliente";
+    const ciclo = saliente ? 5 : 3;
+    const tramos = saliente ? [[0, 1]] : [[0, 0.4], [0.6, 1]];
+    const vol = ctx.createGain(); vol.gain.value = 0; vol.connect(ctx.destination);
+    const oscs = (saliente ? [425] : [440, 480]).map(f => { const o = ctx.createOscillator(); o.frequency.value = f; o.connect(vol); o.start(); return o; });
+    // Dejamos programados unos dos minutos de timbre; nadie deja sonar el teléfono más que eso.
+    const g = vol.gain, t0 = ctx.currentTime + 0.05, nivel = saliente ? 0.15 : 0.1, rampa = 0.015;
+    for (let c = 0; c < 40; c++) for (const [a, b] of tramos) {
+      const ini = t0 + c * ciclo + a, fin = t0 + c * ciclo + b;
+      g.setValueAtTime(0, ini); g.linearRampToValueAtTime(nivel, ini + rampa);
+      g.setValueAtTime(nivel, fin - rampa); g.linearRampToValueAtTime(0, fin);
+    }
+    let parado = false;
+    return {
+      parar() {
+        if (parado) return;
+        parado = true;
+        oscs.forEach(o => { try { o.stop(); } catch (_) {} });
+        ctx.close().catch(() => {});
+      }
+    };
+  }
+
+  // Ruido de línea: el siseo suave de una llamada telefónica. Como en un celular de verdad, viene del
+  // otro lado: suena mientras habla el cliente y se apaga despacio cuando se calla (hablando(true/false)).
+  // Ruido blanco por un filtro de banda telefónica, muy bajo y con una ondulación lenta para que no
+  // suene a máquina. La cancelación de eco y de ruido del micrófono lo sacan antes de mandarlo.
+  function linea(salida) {
+    const AC = window.AudioContext || window.webkitAudioContext;
+    if (!AC) return { parar() {} };
+    const ctx = new AC();
+    if (ctx.state === "suspended") ctx.resume().catch(() => {});
+    if (salida && ctx.setSinkId) ctx.setSinkId(salida).catch(() => {});
+    const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
+    const d = buf.getChannelData(0);
+    for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+    const ruido = ctx.createBufferSource(); ruido.buffer = buf; ruido.loop = true;
+    const banda = ctx.createBiquadFilter(); banda.type = "bandpass"; banda.frequency.value = 1200; banda.Q.value = 0.6;
+    const vol = ctx.createGain(); vol.gain.value = 0.018;
+    const onda = ctx.createOscillator(); onda.frequency.value = 0.15;
+    const ondaVol = ctx.createGain(); ondaVol.gain.value = 0.004;
+    onda.connect(ondaVol); ondaVol.connect(vol.gain);
+    const puerta = ctx.createGain(); puerta.gain.value = 0;
+    ruido.connect(banda); banda.connect(vol); vol.connect(puerta); puerta.connect(ctx.destination);
+    ruido.start(); onda.start();
+    const self = {
+      sonando: false, parado: false,
+      // Entra rápido (80 ms) con la voz del cliente y se va despacio (medio segundo), como el aire del otro lado.
+      hablando(si) {
+        si = Boolean(si);
+        if (self.parado || si === self.sonando) return;
+        self.sonando = si;
+        const t = ctx.currentTime;
+        puerta.gain.cancelScheduledValues(t);
+        puerta.gain.setValueAtTime(puerta.gain.value, t);
+        puerta.gain.linearRampToValueAtTime(si ? 1 : 0, t + (si ? 0.08 : 0.5));
+      },
+      parar() {
+        if (self.parado) return;
+        self.parado = true; self.sonando = false;
+        try { ruido.stop(); onda.stop(); } catch (_) {}
+        ctx.close().catch(() => {});
+      }
+    };
+    return self;
+  }
+
   function create(provider, opts) {
     if (provider === "gemini-live") return new GeminiLiveEngine(opts);
     return provider === "vapi" ? new VapiEngine(opts) : new BrowserEngine(opts);
   }
 
-  return { create, support, spanishVoices, onVoicesReady, setVapiClase, generoCliente };
+  return { create, support, spanishVoices, onVoicesReady, setVapiClase, generoCliente, tono, linea, ajustes: AJUSTES };
 })();

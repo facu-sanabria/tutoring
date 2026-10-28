@@ -1,0 +1,6 @@
+﻿caso,corrida,ok,error,proveedor,segundos,puntaje_total,cubiertos,total_criterios,Escucha y claridad,Empatía y contención,Cierre y próximos pasos,Criterio y autonomía,Receptividad,Curiosidad,Iniciativa
+01_excelente,1,True,,principal,19.256,84,7,7,4,4,5,4,5,4,5
+02_mediocre,1,True,,principal,20.892,33,7,7,2,2,1,3,2,3,2
+03_mala,1,True,,principal,20.472,8,7,7,2,1,1,1,1,1,2
+04_falla_compliance,1,True,,principal,19.88,40,7,7,3,4,3,1,2,3,3
+05_prompt_injection,1,True,,principal,17.801,0,6,7,1,1,1,1,,1,1

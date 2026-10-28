@@ -1,0 +1,48 @@
+{
+  "nombre": "mkt-08-feedback-tl",
+  "descripcion": "Responde con frases muy cortas durante toda la conversación. No pregunta nada. Acepta el feedback sin decir qué va a hacer distinto.",
+  "origen": "sintético (escrito a mano para cubrir conductas; no es una conversación real)",
+  "empresa": "mkt",
+  "escenarioId": "mkt-feedback-tl",
+  "candidato": "Candidato de prueba",
+  "minutos": 5,
+  "esperado": null,
+  "transcripcion": [
+    {
+      "role": "assistant",
+      "text": "Hola, ¿cómo andás? Te llamo por el monitoreo de una llamada tuya del martes. Arranco por lo bueno: fuiste muy amable con la clienta, se notó."
+    },
+    {
+      "role": "user",
+      "text": "Ah, gracias."
+    },
+    {
+      "role": "assistant",
+      "text": "Ahora, hay dos cosas para mejorar. La más importante: le diste el saldo de la cuenta antes de validar la identidad. Eso no puede pasar."
+    },
+    {
+      "role": "user",
+      "text": "Ok."
+    },
+    {
+      "role": "assistant",
+      "text": "Y la otra, más chica: la llamada duró 14 minutos y el promedio es 6. ¿Qué te parece que pasó?"
+    },
+    {
+      "role": "user",
+      "text": "No sé."
+    },
+    {
+      "role": "assistant",
+      "text": "Bueno. ¿Hay algo que te ayudaría para la próxima?"
+    },
+    {
+      "role": "user",
+      "text": "No, está bien."
+    },
+    {
+      "role": "assistant",
+      "text": "Bueno, lo seguimos hablando la semana que viene."
+    }
+  ]
+}

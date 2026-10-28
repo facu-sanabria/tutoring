@@ -13,12 +13,13 @@ import http from "node:http";
 export const EVAL_JSON = {
   resumen: "Escuchó a la clienta, hizo preguntas concretas y cerró con un próximo paso claro.",
   criterios: [
-    { nombre: "Escucha activa", puntaje: 4, evidencia: "Entiendo, contame desde cuándo pasa.", comentario: "Dejó hablar y retomó lo dicho." },
-    { nombre: "Preguntas para entender", puntaje: 5, evidencia: "¿Pasa con WhatsApp o también con email?", comentario: "Preguntó antes de proponer." },
-    { nombre: "Claridad", puntaje: 4, evidencia: "Se lo explico simple: se están enviando dos veces.", comentario: "Sin tecnicismos." },
-    { nombre: "Empatía", puntaje: 3, evidencia: "Entiendo que es un problema con tus pacientes.", comentario: "Reconoció el malestar." },
-    { nombre: "Manejo de expectativas", puntaje: 4, evidencia: "No te prometo una fecha hasta hablar con el equipo.", comentario: "No prometió de más." },
-    { nombre: "Cierre y próximos pasos", puntaje: 4, evidencia: "Te escribo hoy a las 15 con novedades.", comentario: "Dejó un compromiso concreto." }
+    { nombre: "Escucha y claridad", puntaje: 4, evidencia: "Entiendo, contame desde cuándo pasa y a cuántos pacientes afecta.", comentario: "Dejó hablar y retomó lo dicho en frases simples." , observado: "Retomó lo que dijo la clienta y preguntó por el alcance.", paraSubir: "Podría haber confirmado el canal de contacto." },
+    { nombre: "Empatía y contención", puntaje: 3, evidencia: "Entiendo que es urgente y que te preocupa tu guardia.", comentario: "Reconoció la presión sin ponerse a la defensiva." , observado: "Reconoció la presión de la guardia sin culpar a nadie.", paraSubir: "Nombrar el impacto en los pacientes de forma explícita." },
+    { nombre: "Cierre y próximos pasos", puntaje: 4, evidencia: "Te escribo con lo que vaya pasando en una hora.", comentario: "Dejó un compromiso concreto de aviso." , observado: "Dejó un aviso con hora concreta.", paraSubir: "Resumir lo acordado y decir quién avisa a los clientes." },
+    { nombre: "Criterio y autonomía", puntaje: 4, evidencia: "No voy a arreglar nada en producción a ciegas.", comentario: "No prometió soluciones que no podía garantizar." , observado: "No prometió la solución sin revisar el impacto.", paraSubir: "Proponer un primer paso reversible antes de contactar a los clientes." },
+    { nombre: "Receptividad", puntaje: 3, evidencia: "Si Martín hizo un deploy, lo reviso con él antes de tocar nada.", comentario: "Incorporó el dato nuevo del deploy." , observado: "Tomó el dato del deploy y lo tuvo en cuenta.", paraSubir: "Cambiar el plan de revisión cuando apareció el dato nuevo." },
+    { nombre: "Curiosidad", puntaje: 5, evidencia: "¿Desde cuándo pasa? ¿Hiciste algún cambio reciente?", comentario: "Preguntó alcance y antecedentes antes de proponer." , observado: "Preguntó desde cuándo y a quiénes afecta.", paraSubir: "Preguntar qué cambió antes del incidente." },
+    { nombre: "Iniciativa", puntaje: 3, evidencia: "Voy a intentar comunicarme con Martín ahora.", comentario: "Propuso un paso concreto dentro de lo que le corresponde.", observado: "Se ofreció a contactar a los clientes.", paraSubir: "Anticipar el riesgo para los turnos del sábado." }
   ],
   fortalezas: ["Preguntó antes de proponer", "Habló sin tecnicismos"],
   a_mejorar: ["Resumir lo acordado al final", "Confirmar el canal de contacto"],

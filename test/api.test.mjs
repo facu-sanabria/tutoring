@@ -66,7 +66,8 @@ describe("servidor con Gemini", () => {
   });
 
   test("informes: POST, GET lista, GET por id y DELETE", async () => {
-    const post = await pedir(app.base, "/api/informes", { method: "POST", json: INFORME });
+    // Lo guarda el candidato (estudiante1 = Lucas Ferreyra); lo lista y lo borra la empresa.
+    const post = await pedir(app.base, "/api/informes", { method: "POST", json: INFORME, cookie: await app.ingresar("estudiante1") });
     assert.equal(post.status, 200);
     const id = post.cuerpo.id;
     assert.match(id, /^[0-9a-f-]{36}$/);
@@ -78,7 +79,7 @@ describe("servidor con Gemini", () => {
 
     const uno = await pedir(app.base, `/api/informes/${id}`);
     assert.equal(uno.status, 200);
-    assert.equal(uno.cuerpo.evaluacion.criterios.length, 6);
+    assert.equal(uno.cuerpo.evaluacion.criterios.length, 7);
 
     assert.equal((await pedir(app.base, `/api/informes/${id}`, { method: "DELETE" })).status, 200);
     assert.equal((await pedir(app.base, `/api/informes/${id}`)).status, 404);
@@ -97,7 +98,8 @@ describe("servidor con Gemini", () => {
   });
 
   test("informes: rechaza cuerpos que no son informes", async () => {
-    for (const json of [[1, 2], { candidato: "x" }, { evaluacion: {} }]) {
+    // El candidato ya no hace falta: lo pone el servidor desde la sesión.
+    for (const json of [[1, 2], { candidato: "x" }, { evaluacion: [] }]) {
       const r = await pedir(app.base, "/api/informes", { method: "POST", json });
       assert.equal(r.status, 400);
       assert.ok(r.cuerpo.error.message);
@@ -295,7 +297,7 @@ describe("servidor con Claude (anthropic)", () => {
     });
     assert.equal(r.status, 200);
     const ev = JSON.parse(r.texto);
-    assert.equal(ev.criterios.length, 6);
+    assert.equal(ev.criterios.length, 7);
     assert.ok(!/clave-de-prueba/.test(r.bruto));
   });
 

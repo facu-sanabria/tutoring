@@ -1,0 +1,59 @@
+{
+  "descripcion": "Casos de prueba del evaluador con transcripciones de nivel conocido. Sirven para verificar que el evaluador distingue niveles y que cita criterios y evidencia, no como modelo para candidatos.",
+  "escenarioId": "incidente-viernes",
+  "orden": ["malo", "medio"],
+  "casos": [
+    {
+      "nombre": "malo",
+      "candidato": "Estudiante de prueba",
+      "minutos": 3,
+      "puntajeTotal": { "min": 0, "max": 40 },
+      "esperado": {
+        "Escucha y claridad": { "min": 1, "max": 2 },
+        "Empatía y contención": { "min": 1, "max": 2 },
+        "Cierre y próximos pasos": { "min": 1, "max": 2 },
+        "Criterio y autonomía": { "min": 1, "max": 2 },
+        "Receptividad": { "min": 1, "max": 2 },
+        "Curiosidad": { "min": 1, "max": 2 },
+        "Iniciativa": { "min": 1, "max": 3 }
+      },
+      "transcripcion": [
+        { "role": "assistant", "text": "Hola, soy Agustina Ferrari, de soporte. Te llamo porque varios pacientes de TurnoFácil no recibieron el recordatorio de mañana." },
+        { "role": "user", "text": "Dale, tranqui. Ya lo arreglo, reinicio el worker y listo." },
+        { "role": "assistant", "text": "¿Y eso ya está hecho? Es que me preocupa que se hayan perdido recordatorios de toda la noche." },
+        { "role": "user", "text": "Sí, sí. Es un bug de siempre, no es nada grave. En diez minutos se resuelve." },
+        { "role": "assistant", "text": "Bueno... ¿y a los clientes qué les digo?" },
+        { "role": "user", "text": "Decí que está todo bien. Mañana lo vemos." },
+        { "role": "assistant", "text": "Ok. Entonces, ¿me confirmás algo hoy?" },
+        { "role": "user", "text": "Te confirmo mañana. Chau, Agustina." }
+      ]
+    },
+    {
+      "nombre": "medio",
+      "candidato": "Estudiante de prueba",
+      "minutos": 5,
+      "puntajeTotal": { "min": 45, "max": 75 },
+      "esperado": {
+        "Escucha y claridad": { "min": 3, "max": 4 },
+        "Empatía y contención": { "min": 2, "max": 3 },
+        "Cierre y próximos pasos": { "min": 2, "max": 4 },
+        "Criterio y autonomía": { "min": 2, "max": 3 },
+        "Receptividad": { "min": 2, "max": 3 },
+        "Curiosidad": { "min": 3, "max": 4 },
+        "Iniciativa": { "min": 2, "max": 3 }
+      },
+      "transcripcion": [
+        { "role": "assistant", "text": "Hola, soy Agustina Ferrari, de soporte. Varios pacientes de TurnoFácil no recibieron el recordatorio de mañana y estoy bastante preocupada." },
+        { "role": "user", "text": "Hola Agustina, gracias por llamar. Contame, ¿desde cuándo pasa y a cuántos pacientes afecta?" },
+        { "role": "assistant", "text": "Desde las siete y media más o menos. Son como cuarenta reportes, pero puede ser más. Hay turnos el sábado a la mañana." },
+        { "role": "user", "text": "Entiendo, es bastante urgente. ¿Hiciste algo antes de llamarme, algún cambio reciente?" },
+        { "role": "assistant", "text": "No sé, Martín hizo un deploy a las seis, creo. Pero él no me atiende." },
+        { "role": "user", "text": "Ok. Mirá, no voy a arreglar nada en producción a ciegas. Voy a intentar comunicarme con Martín ahora y te aviso en una hora cómo seguimos." },
+        { "role": "assistant", "text": "¿Y mientras tanto a los clientes qué les digo?" },
+        { "role": "user", "text": "Que estamos revisando y que les avisamos. Te mando un mensaje escrito con lo que vaya pasando." },
+        { "role": "assistant", "text": "Bueno, dale. Esperá tu aviso." },
+        { "role": "user", "text": "Perfecto, Agustina. Hablamos en una hora." }
+      ]
+    }
+  ]
+}

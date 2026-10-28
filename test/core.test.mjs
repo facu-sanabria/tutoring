@@ -107,8 +107,8 @@ describe("puntajePonderado", () => {
       { nombre: "Claridad", puntaje: 3 },
       { nombre: "Empatía", puntaje: 1 }
     ]);
-    // (5*3 + 3*2 + 1*1) / (5*6) = 22/30
-    assert.equal(r.puntaje, 73);
+    // Escala 1-5 a 0-100: ((5-1)*3 + (3-1)*2 + (1-1)*1) / (4*6) = 16/24
+    assert.equal(r.puntaje, 67);
     assert.equal(r.cubiertos, 3);
     assert.equal(r.total, 3);
   });
@@ -127,7 +127,7 @@ describe("puntajePonderado", () => {
     const r = core.puntajePonderado(defs, [{ nombre: "Claridad", puntaje: 4 }]);
     assert.equal(r.cubiertos, 1);
     assert.equal(r.total, 3);
-    assert.equal(r.puntaje, 80);
+    assert.equal(r.puntaje, 75);
   });
 
   test("peso inválido cuenta como 1 y no rompe el cálculo", () => {

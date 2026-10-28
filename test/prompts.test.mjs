@@ -64,10 +64,30 @@ describe("prompt del mentor reordenado para el caché", () => {
     assert.ok(!/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(a));
   });
 
-  test("evaluación y voz no cambiaron", () => {
+  test("la evaluación tiene la vara por descripción y no castiga lo no dicho", () => {
     const cfg = empresas[0], esc = cfg.escenarios[0];
     const turnos = [{ role: "assistant", text: "Hola" }, { role: "user", text: "Buen día" }];
-    assert.equal(nuevo.prompts.voz(cfg, esc, "Ana"), antes.prompts.voz(cfg, esc, "Ana"));
-    assert.equal(nuevo.prompts.evaluacion(cfg, esc, turnos, "Ana", 3), antes.prompts.evaluacion(cfg, esc, turnos, "Ana", 3));
+    const p = nuevo.prompts.evaluacion(cfg, esc, turnos, "Ana", 3);
+    assert.ok(p.includes("3 = cumple lo que dice la descripción del criterio"));
+    assert.ok(p.includes("poné puntaje null"));
+  });
+
+  test("la evaluación muestra indicadores por criterio y pide evidencia antes del puntaje", () => {
+    const cfg = nuevo.DEFAULTS, esc = cfg.escenarios[0];
+    const turnos = [{ role: "assistant", text: "Hola" }, { role: "user", text: "Buen día" }];
+    const p = nuevo.prompts.evaluacion(cfg, esc, turnos, "Ana", 3);
+    assert.ok(p.includes("Cuenta como evidencia:"));
+    assert.ok(p.includes("No cuenta (o cuenta en contra):"));
+    assert.ok(p.includes("una promesa no es empatía"), "la empatía no se cuenta por tranquilizar o prometer");
+    assert.ok(p.indexOf('"observado"') < p.indexOf('"puntaje"'), "primero lo observado, después el puntaje");
+  });
+
+  test("la voz tiene la regla de cierre nueva: duración estimada, cierre por resolución o cansancio y [FIN] al final", () => {
+    const cfg = empresas[0], esc = { ...cfg.escenarios[0], duracion: 8 };
+    const voz = nuevo.prompts.voz(cfg, esc, "Ana");
+    assert.ok(voz.includes("Suele durar unos 8 minutos"));
+    assert.ok(voz.includes("La conversación termina cuando la situación se resuelve o cuando te cansás"));
+    assert.ok(voz.includes("[FIN]"));
+    assert.ok(voz.includes("[SISTEMA]"));
   });
 });
