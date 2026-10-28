@@ -1,0 +1,68 @@
+{
+  "nombre": "mkt-01-sin-internet",
+  "descripcion": "Atiende con el saludo completo (empresa, nombre y ofrecimiento de ayuda). Valida identidad. Pregunta por las luces del módem y por cuándo empezó. Retoma que ya llamó ayer. Explica que hace falta una visita técnica, da la fecha disponible en 48 horas y el número de gestión, y pregunta si hay algo más.",
+  "origen": "sintético (escrito a mano para cubrir conductas; no es una conversación real)",
+  "empresa": "mkt",
+  "escenarioId": "mkt-sin-internet",
+  "candidato": "Candidato de prueba",
+  "minutos": 6,
+  "esperado": null,
+  "transcripcion": [
+    {
+      "role": "user",
+      "text": "ConectAR, buen día, te habla Martina. ¿En qué te puedo ayudar?"
+    },
+    {
+      "role": "assistant",
+      "text": "Hola, mirá, hace dos días que no tengo internet y ayer ya llamé y no me solucionaron nada. Trabajo desde mi casa, no puedo seguir así."
+    },
+    {
+      "role": "user",
+      "text": "Uf, entiendo, dos días sin internet trabajando desde tu casa es muchísimo, y encima ya llamaste ayer. Lo vemos juntas. Para entrar a tu cuenta, ¿me pasás el DNI del titular y la fecha de nacimiento?"
+    },
+    {
+      "role": "assistant",
+      "text": "Sí, 23.456.789, nací el 3 de mayo del 79. Soy Mariela Ríos."
+    },
+    {
+      "role": "user",
+      "text": "Gracias, Mariela, ya estoy en tu cuenta. ¿Ayer te dieron algún número de reclamo?"
+    },
+    {
+      "role": "assistant",
+      "text": "No, me dijeron que reinicie el módem y listo. Y ya lo había reiniciado."
+    },
+    {
+      "role": "user",
+      "text": "Bien, entonces no te voy a pedir que lo reinicies de nuevo. ¿Me decís qué luces ves prendidas en el módem y de qué color?"
+    },
+    {
+      "role": "assistant",
+      "text": "Hay una que dice LOS que está en rojo. Las otras verdes, creo."
+    },
+    {
+      "role": "user",
+      "text": "Perfecto, eso me sirve mucho. La luz LOS en rojo quiere decir que no está llegando la señal de la fibra hasta tu casa, así que no es algo que se arregle desde el módem. ¿Pasó algo el lunes, una tormenta, alguna obra en la calle?"
+    },
+    {
+      "role": "assistant",
+      "text": "Sí, el domingo a la noche hubo una tormenta fuerte. ¿Me lo pueden arreglar hoy? El jueves a las diez tengo una reunión importantísima."
+    },
+    {
+      "role": "user",
+      "text": "Te entiendo con la reunión. Te soy honesta: hoy no puedo prometerte una visita, la primera fecha que me da el sistema es el miércoles entre las 8 y las 13. Así llegás al jueves con el servicio. Te dejo el reclamo con el dato de la tormenta y la luz LOS, así el técnico va directo a revisar la fibra."
+    },
+    {
+      "role": "assistant",
+      "text": "Bueno, el miércoles está bien. ¿Y si no viene?"
+    },
+    {
+      "role": "user",
+      "text": "Tu número de gestión es 4471-2280. Con ese número, si el miércoles a las 13 no llegó nadie, llamás y te atienden como prioritario. Te repito: visita el miércoles entre las 8 y las 13, gestión 4471-2280. ¿Lo pudiste anotar? ¿Hay algo más en lo que te pueda ayudar?"
+    },
+    {
+      "role": "assistant",
+      "text": "Sí, lo anoté. No, eso es todo, gracias."
+    }
+  ]
+}

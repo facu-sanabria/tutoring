@@ -1,0 +1,60 @@
+{
+  "nombre": "mkt-02-sin-internet",
+  "descripcion": "Atiende con \"Hola\" sin decir la empresa ni su nombre. No valida identidad. Le pide a la clienta que repita el problema y que reinicie el módem aunque ella dice que ya lo hizo. Promete que se arregla hoy. No da número de gestión.",
+  "origen": "sintético (escrito a mano para cubrir conductas; no es una conversación real)",
+  "empresa": "mkt",
+  "escenarioId": "mkt-sin-internet",
+  "candidato": "Candidato de prueba",
+  "minutos": 4,
+  "esperado": null,
+  "transcripcion": [
+    {
+      "role": "user",
+      "text": "Hola."
+    },
+    {
+      "role": "assistant",
+      "text": "Hola, mirá, hace dos días que no tengo internet y ayer ya llamé y no me solucionaron nada. Trabajo desde mi casa, no puedo seguir así."
+    },
+    {
+      "role": "user",
+      "text": "¿Cuál es el problema?"
+    },
+    {
+      "role": "assistant",
+      "text": "Te acabo de decir, no tengo internet hace dos días."
+    },
+    {
+      "role": "user",
+      "text": "Ah, ok. ¿Probó reiniciar el módem?"
+    },
+    {
+      "role": "assistant",
+      "text": "Sí, ya lo reinicié, ayer me dijeron lo mismo."
+    },
+    {
+      "role": "user",
+      "text": "Bueno, desenchúfelo y vuelva a enchufarlo, espere dos minutos."
+    },
+    {
+      "role": "assistant",
+      "text": "Ya lo hice mil veces. ¿Me lo pueden arreglar hoy?"
+    },
+    {
+      "role": "user",
+      "text": "Sí, quédese tranquila que hoy a la tarde ya va a tener internet."
+    },
+    {
+      "role": "assistant",
+      "text": "¿Me lo asegurás?"
+    },
+    {
+      "role": "user",
+      "text": "Sí, seguro, hoy queda."
+    },
+    {
+      "role": "assistant",
+      "text": "Bueno, gracias, chau."
+    }
+  ]
+}

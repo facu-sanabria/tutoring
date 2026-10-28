@@ -1,0 +1,60 @@
+{
+  "nombre": "mkt-03-doble-cobro",
+  "descripcion": "Atiende con el saludo completo y trata al cliente de usted. Habla despacio y sin tecnicismos y dicta el número de gestión confirmando que lo anotó. No pide DNI ni fecha de nacimiento antes de revisar los débitos de la cuenta. Explica el plazo de 72 horas hábiles y acuerda el aviso por teléfono.",
+  "origen": "sintético (escrito a mano para cubrir conductas; no es una conversación real)",
+  "empresa": "mkt",
+  "escenarioId": "mkt-doble-cobro",
+  "candidato": "Candidato de prueba",
+  "minutos": 5,
+  "esperado": null,
+  "transcripcion": [
+    {
+      "role": "user",
+      "text": "ConectAR, buenas tardes, le habla Tomás. ¿En qué lo puedo ayudar?"
+    },
+    {
+      "role": "assistant",
+      "text": "Buenas tardes, joven. Mire, en el banco me aparecen dos débitos de ustedes el mismo día, por la misma plata. Quiero que me la devuelvan ya."
+    },
+    {
+      "role": "user",
+      "text": "Qué macana, señor, lo vemos. Ya estoy mirando la cuenta: sí, veo los dos cobros del día 10, uno de más."
+    },
+    {
+      "role": "assistant",
+      "text": "¿Y me la devuelven ahora?"
+    },
+    {
+      "role": "user",
+      "text": "Ahora mismo no, porque la devolución la hace otra área, Facturación. Lo que hago yo es dejar el reclamo hecho, y ellos tienen hasta 72 horas hábiles, o sea, hasta el jueves, para devolverle la plata en la misma cuenta del banco."
+    },
+    {
+      "role": "assistant",
+      "text": "¿Cómo, cómo? ¿Hábiles?"
+    },
+    {
+      "role": "user",
+      "text": "Días de semana, sin contar sábado y domingo. Hoy es lunes, así que a más tardar el jueves."
+    },
+    {
+      "role": "assistant",
+      "text": "Ah, bueno. ¿Y cómo sé que lo hicieron? Yo no tengo mail."
+    },
+    {
+      "role": "user",
+      "text": "Le dejo anotado que lo llamen a este mismo teléfono. ¿Tiene una lapicera? El número de reclamo es 5 5 1 0, guion, 3 2 7. ¿Me lo repite?"
+    },
+    {
+      "role": "assistant",
+      "text": "5510-327."
+    },
+    {
+      "role": "user",
+      "text": "Perfecto. Si el jueves no le devolvieron la plata, llama y da ese número. ¿Hay algo más que le pueda ayudar?"
+    },
+    {
+      "role": "assistant",
+      "text": "No, gracias, joven, muy amable."
+    }
+  ]
+}

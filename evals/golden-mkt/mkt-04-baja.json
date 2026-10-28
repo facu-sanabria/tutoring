@@ -1,0 +1,60 @@
+{
+  "nombre": "mkt-04-baja",
+  "descripcion": "Atiende con \"Hola, buen día\" y su nombre, sin decir la empresa. Valida identidad. No pregunta el motivo de la baja. Ofrece la promoción de retención tres veces, después de que la clienta dijo que no. Al final no explica la devolución del módem ni la fecha de la baja.",
+  "origen": "sintético (escrito a mano para cubrir conductas; no es una conversación real)",
+  "empresa": "mkt",
+  "escenarioId": "mkt-baja",
+  "candidato": "Candidato de prueba",
+  "minutos": 5,
+  "esperado": null,
+  "transcripcion": [
+    {
+      "role": "user",
+      "text": "Hola, buen día, te habla Lucía."
+    },
+    {
+      "role": "assistant",
+      "text": "Hola, quiero dar de baja el servicio, está muy caro."
+    },
+    {
+      "role": "user",
+      "text": "¿Me pasás DNI del titular y fecha de nacimiento?"
+    },
+    {
+      "role": "assistant",
+      "text": "36.112.908, 14 de agosto del 97. Sofía Benítez."
+    },
+    {
+      "role": "user",
+      "text": "Gracias, Sofía. Mirá, tengo una promo buenísima para vos: 30 % de descuento por seis meses."
+    },
+    {
+      "role": "assistant",
+      "text": "No, gracias, igual me quiero dar de baja."
+    },
+    {
+      "role": "user",
+      "text": "Pero pensalo, son seis meses con 30 % menos, es un montón de plata."
+    },
+    {
+      "role": "assistant",
+      "text": "Te dije que no. ¿Me la podés dar de baja?"
+    },
+    {
+      "role": "user",
+      "text": "Es que es la mejor promo que tenemos, no te va a convenir irte a otra empresa."
+    },
+    {
+      "role": "assistant",
+      "text": "Mirá, si no me das la baja voy a hacer un reclamo en Defensa del Consumidor."
+    },
+    {
+      "role": "user",
+      "text": "Bueno, bueno, ya te la doy de baja. Listo."
+    },
+    {
+      "role": "assistant",
+      "text": "¿Listo? ¿Y ahora qué hago? Chau."
+    }
+  ]
+}

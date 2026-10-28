@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { chromium } from "playwright";
-import { startApp, pedir } from "./helpers.mjs";
+import { startApp, pedir, ingresarEn, atenderEn } from "./helpers.mjs";
 
 test("respaldo Gemini: recuperar JSON, reintentar guardado y ver informe en Empresa", async () => {
   const app = await startApp({ provider: "claude-sdk", env: {
@@ -13,12 +13,11 @@ test("respaldo Gemini: recuperar JSON, reintentar guardado y ver informe en Empr
     browser = await chromium.launch();
     const ctx = await browser.newContext();
     const page = await ctx.newPage();
-    const empresa = await ctx.newPage();
+    const empresa = await (await browser.newContext()).newPage();   // otra sesión: la de la empresa
     const errores = [];
     page.on("pageerror", e => errores.push(e.message));
     page.on("dialog", d => d.accept());
-    await empresa.goto(app.base);
-    await empresa.locator(".card").first().waitFor();
+    await ingresarEn(empresa, app.base, "empresa1");
     await page.route("**/api/messages", async route => {
       const body = route.request().postDataJSON();
       if (body.purpose === "eval") body.messages[0].content += "\nFALLA_EVAL_TRUNCADA";
@@ -32,9 +31,10 @@ test("respaldo Gemini: recuperar JSON, reintentar guardado y ver informe en Empr
       }
       await route.continue();
     });
-    await page.goto(app.base);
+    await ingresarEn(page, app.base, "estudiante1");
     await page.locator(".card").first().click();
     await page.locator("#startCall").click();
+    await atenderEn(page);
     await page.waitForFunction(() => document.querySelectorAll(".transcript .ln").length >= 1);
     if (await page.locator(".typebar").isHidden()) await page.locator('button[aria-label="Escribir en vez de hablar"]').click();
     const input = page.locator('.typebar input[aria-label="Tu respuesta"]');
@@ -52,13 +52,12 @@ test("respaldo Gemini: recuperar JSON, reintentar guardado y ver informe en Empr
     await page.waitForFunction(() => document.getElementById("viewLabel").textContent === "Informe");
     assert.equal(evalCalls(), 2, "reintentar guardado no vuelve a consumir IA");
     assert.equal((await pedir(app.base, "/api/informes")).cuerpo.length, 1);
-    await empresa.locator('.seg button[data-profile="empresa"]').click();
     await empresa.locator('.nav button:has-text("Informes")').click();
     await empresa.locator(".list button").first().waitFor();
     assert.equal(await empresa.locator(".list button").count(), 1);
     await empresa.locator(".list button").first().click();
     await empresa.locator(".crit").first().waitFor();
-    assert.equal(await empresa.locator(".crit").count(), 6);
+    assert.equal(await empresa.locator(".crit").count(), 7);
     assert.deepEqual(errores, []);
   } finally {
     await browser?.close();

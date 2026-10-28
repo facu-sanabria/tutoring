@@ -1,0 +1,38 @@
+{
+  "nombre": "01_excelente",
+  "descripcion": "Triagea con preguntas precisas, contiene a Agustina, ajusta el plan cuando aparece el deploy, elige un primer paso reversible, deriva con nombre y cierra con quién, qué y cuándo.",
+  "empresa": "nodo",
+  "escenarioId": "incidente-viernes",
+  "candidato": "Estudiante de prueba",
+  "minutos": 8,
+  "esperado": {
+    "total": { "min": 75, "max": 100 },
+    "criterios": {
+      "Escucha y claridad": { "min": 4, "max": 5 },
+      "Empatía y contención": { "min": 4, "max": 5 },
+      "Cierre y próximos pasos": { "min": 4, "max": 5 },
+      "Criterio y autonomía": { "min": 4, "max": 5 },
+      "Receptividad": { "min": 4, "max": 5 },
+      "Curiosidad": { "min": 4, "max": 5 },
+      "Iniciativa": { "min": 4, "max": 5 }
+    }
+  },
+  "transcripcion": [
+    { "role": "assistant", "text": "Hola, soy Agustina Ferrari, de soporte. Te llamo porque varios pacientes de clientes de TurnoFácil no recibieron el recordatorio de los turnos de mañana. Ya me escribieron como cinco consultorios y no sé qué decirles." },
+    { "role": "user", "text": "Hola Agustina, gracias por avisar rápido. Te escucho preocupada y tiene sentido: si los pacientes no reciben el recordatorio, mañana hay turnos que se pierden y eso es plata para los consultorios. Vamos a ordenarlo juntos. ¿Desde cuándo te están llegando los reclamos?" },
+    { "role": "assistant", "text": "El primero fue a las siete y media, más o menos. Y después empezaron a llegar más." },
+    { "role": "user", "text": "Bien. ¿Son todos de WhatsApp o también de email? ¿Y son de un tipo de negocio o de varios?" },
+    { "role": "assistant", "text": "De varios, consultorios y una peluquería. Creo que son de WhatsApp, por email no me dijo nadie. ¿Pero lo podés arreglar ya? Hay turnos mañana a la mañana temprano." },
+    { "role": "user", "text": "Entiendo la urgencia con los turnos de mañana temprano. Antes de tocar nada quiero entender qué cambió, porque si arreglo a ciegas puedo empeorarlo. ¿Sabés si hubo algún cambio hoy en el sistema, un deploy o algo en el worker de recordatorios?" },
+    { "role": "assistant", "text": "Ahora que lo decís, Martín hizo un deploy a las seis que tocaba el worker. Pero no me atiende el teléfono." },
+    { "role": "user", "text": "Ok, eso cambia lo que te iba a proponer. Yo pensaba revisar primero la conexión con WhatsApp, pero con un deploy a las seis que tocó el worker, lo más probable es que venga de ahí. ¿Sabés si el rollback de ese deploy está documentado? ¿Y el worker sigue corriendo en las dos réplicas?" },
+    { "role": "assistant", "text": "El rollback está documentado, pero nadie lo probó todavía. Lo de las réplicas no sé." },
+    { "role": "user", "text": "Gracias, eso es clave. Entonces no hago el rollback solo y sin probar. Te propongo esto: en los próximos quince minutos miro los logs del worker para confirmar si los envíos fallan desde las seis, sin cambiar nada. En paralelo llamo a Tomás Quiroga, que es el que conoce recordatorios y jobs; si Martín no atiende, Tomás es quien puede decidir conmigo si hacemos el rollback. Si lo confirmamos, lo hacemos los dos, mirando las dos réplicas." },
+    { "role": "assistant", "text": "Bueno, me tranquiliza que haya un plan. ¿Y a los consultorios qué les digo mientras tanto?" },
+    { "role": "user", "text": "Deciles que detectamos un problema con los recordatorios de mañana, que lo estamos revisando y que a las nueve y media les mandamos una actualización. No le eches la culpa a nadie, es un problema nuestro. Y si querés, te armo ahora un listado de los turnos de mañana a la mañana, así si no llegamos a tiempo les podemos avisar a los pacientes a mano." },
+    { "role": "assistant", "text": "Sí, eso me re sirve. ¿Y quedó registrado en algún lado?" },
+    { "role": "user", "text": "Buena pregunta. Abro ahora un ticket de incidente en Jira, en el proyecto TF, con lo que me contaste: desde las siete y media, WhatsApp, varios negocios, deploy de las seis. Ahí voy anotando lo que encontremos. Para cerrar: yo miro los logs y llamo a Tomás ya; vos avisás a los consultorios con el mensaje que te dije; a las nueve y media te llamo con novedades y te paso el listado de turnos. ¿Te parece bien así?" },
+    { "role": "assistant", "text": "Perfecto, me parece bien. Espero tu llamada a las nueve y media." },
+    { "role": "user", "text": "Dale, Agustina. Gracias por avisar tan rápido, hablamos a las nueve y media." }
+  ]
+}

@@ -14,13 +14,14 @@
 <div class="shell">
   <aside class="side" id="side" aria-label="Navegación">
     <div class="logo"><img class="mark" src="img/logo.png" alt="">Tutoring</div>
-    <div class="seg" role="group" aria-label="Perfil">
-      <button data-profile="estudiante" aria-pressed="true">Estudiante</button>
-      <button data-profile="junior" aria-pressed="false">Junior</button>
-      <button data-profile="empresa" aria-pressed="false">Empresa</button>
-    </div>
     <div id="sideNav" class="side-dyn" style="display:flex;flex-direction:column;gap:14px;min-height:0;flex:1"></div>
-    <div class="me"><div class="av" id="meAv"></div><div><b id="meName"></b><span id="meRole"></span></div></div>
+    <div class="me-wrap">
+      <div class="me-menu" id="meMenu" role="menu" hidden>
+        <button role="menuitem" id="cuenta">Cambiar contraseña</button>
+        <button role="menuitem" id="salir">Salir</button>
+      </div>
+      <button class="me" id="me" aria-haspopup="menu" aria-expanded="false" aria-controls="meMenu"><div class="av" id="meAv"></div><div><b id="meName"></b><span id="meRole"></span></div></button>
+    </div>
   </aside>
 
   <section class="main" role="main">

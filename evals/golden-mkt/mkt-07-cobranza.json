@@ -1,0 +1,52 @@
+{
+  "nombre": "mkt-07-cobranza",
+  "descripcion": "No dice su nombre ni valida que habla con el titular: menciona la deuda en la primera frase. Menciona el Veraz como consecuencia. Después ofrece el plan de pagos y acuerda una fecha.",
+  "origen": "sintético (escrito a mano para cubrir conductas; no es una conversación real)",
+  "empresa": "mkt",
+  "escenarioId": "mkt-cobranza",
+  "candidato": "Candidato de prueba",
+  "minutos": 5,
+  "esperado": null,
+  "transcripcion": [
+    {
+      "role": "assistant",
+      "text": "¿Hola?"
+    },
+    {
+      "role": "user",
+      "text": "Hola, ¿Diego Sosa? Te llamo de ConectAR porque tenés dos facturas sin pagar, son 38 mil pesos."
+    },
+    {
+      "role": "assistant",
+      "text": "¿Y vos cómo sabés que soy yo? Sí, soy yo. Ya sé, ya sé."
+    },
+    {
+      "role": "user",
+      "text": "Mirá, si no pagás vas a quedar en el Veraz y después no vas a poder sacar nada en cuotas."
+    },
+    {
+      "role": "assistant",
+      "text": "Ya sé, pero ahora no puedo pagar nada. Me quedé sin un laburo hace dos meses."
+    },
+    {
+      "role": "user",
+      "text": "Bueno, hay un plan en tres cuotas. ¿Podés pagar algo?"
+    },
+    {
+      "role": "assistant",
+      "text": "Algo sí. A fin de mes me entra plata."
+    },
+    {
+      "role": "user",
+      "text": "Entonces te dejo tres cuotas de 12.700, la primera el 30. ¿Te parece?"
+    },
+    {
+      "role": "assistant",
+      "text": "Sí, dale. Por transferencia, ¿puede ser?"
+    },
+    {
+      "role": "user",
+      "text": "Sí. Te llega el CBU por SMS. El número de gestión es 6021-990. Chau."
+    }
+  ]
+}

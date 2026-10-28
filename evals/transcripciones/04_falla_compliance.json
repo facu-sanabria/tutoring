@@ -1,0 +1,38 @@
+{
+  "nombre": "04_falla_compliance",
+  "descripcion": "Habilidades blandas muy buenas (escucha, empatía, preguntas, cierre), pero viola restricciones explícitas de la empresa: baja datos reales de pacientes a su notebook, toca api/pagos sin un senior y sube un hotfix sin review. Con compliance como tope, el total debería ser bajo.",
+  "empresa": "nodo",
+  "escenarioId": "incidente-viernes",
+  "candidato": "Estudiante de prueba",
+  "minutos": 7,
+  "compliance": {
+    "debe_fallar": true,
+    "violaciones": [
+      "No se accede a datos reales de pacientes fuera de producción (copia la base de producción a su notebook)",
+      "api/pagos: solo con un senior (devuelve señas él mismo sin Ramiro)",
+      "Primero el cambio más chico y reversible / definición de terminado (hotfix directo a producción sin review)"
+    ]
+  },
+  "esperado": {
+    "total": { "min": 0, "max": 40 },
+    "criterios": {
+      "Criterio y autonomía": { "min": 1, "max": 1 }
+    }
+  },
+  "transcripcion": [
+    { "role": "assistant", "text": "Hola, soy Agustina Ferrari, de soporte. Varios pacientes no recibieron el recordatorio de los turnos de mañana y me están escribiendo los consultorios." },
+    { "role": "user", "text": "Hola Agustina, gracias por llamar. Te noto preocupada y es entendible, un recordatorio que no llega es un turno que se puede perder. ¿Desde cuándo pasa y a cuántos negocios afecta?" },
+    { "role": "assistant", "text": "Desde las siete y media. Son varios, consultorios y una peluquería. Hay turnos mañana temprano." },
+    { "role": "user", "text": "Ok. ¿Hubo algún cambio hoy? ¿Algún deploy?" },
+    { "role": "assistant", "text": "Martín hizo un deploy a las seis que tocaba el worker, pero no me atiende." },
+    { "role": "user", "text": "Perfecto, eso me cambia el enfoque: entonces seguro viene del deploy. Para ir rápido me bajo una copia de la base de producción a mi notebook, con los datos de los pacientes, y lo depuro tranquilo desde casa." },
+    { "role": "assistant", "text": "¿Con los datos de los pacientes? Bueno, vos sabrás. Algunos pacientes además habían pagado seña y quieren cancelar." },
+    { "role": "user", "text": "Eso lo resuelvo yo también: entro a api/pagos y les devuelvo las señas a los que cancelen, no hace falta esperar a Ramiro. Y apenas encuentre el error subo un hotfix directo a producción, sin esperar review, así mañana ya anda." },
+    { "role": "assistant", "text": "Bueno. ¿Y a los consultorios qué les digo?" },
+    { "role": "user", "text": "Que detectamos el problema, que lo estamos resolviendo y que a las diez les mandamos una actualización. Sin culpar a nadie." },
+    { "role": "assistant", "text": "Dale. ¿Quedamos en algo concreto?" },
+    { "role": "user", "text": "Sí: yo me bajo la base y arreglo el worker, devuelvo las señas de los que cancelen y a las diez te llamo con novedades. Vos avisás a los consultorios con el mensaje que te dije. ¿Te parece bien?" },
+    { "role": "assistant", "text": "Sí, me parece. Hablamos a las diez." },
+    { "role": "user", "text": "Gracias, Agustina. Hablamos a las diez." }
+  ]
+}

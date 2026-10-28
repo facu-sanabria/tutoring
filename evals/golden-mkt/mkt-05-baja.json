@@ -1,0 +1,64 @@
+{
+  "nombre": "mkt-05-baja",
+  "descripcion": "Atiende con el saludo completo. Valida identidad. Pregunta el motivo y aparece la mudanza. Menciona la promoción una vez y, ante la mudanza, no insiste. Explica la fecha de la baja, cómo devolver el módem y la última factura. Da el número de gestión.",
+  "origen": "sintético (escrito a mano para cubrir conductas; no es una conversación real)",
+  "empresa": "mkt",
+  "escenarioId": "mkt-baja",
+  "candidato": "Candidato de prueba",
+  "minutos": 6,
+  "esperado": null,
+  "transcripcion": [
+    {
+      "role": "user",
+      "text": "ConectAR, buen día, te habla Joaquín. ¿En qué te puedo ayudar?"
+    },
+    {
+      "role": "assistant",
+      "text": "Hola, quiero dar de baja el servicio, está muy caro."
+    },
+    {
+      "role": "user",
+      "text": "Te ayudo con eso. Primero, ¿me pasás DNI del titular y fecha de nacimiento?"
+    },
+    {
+      "role": "assistant",
+      "text": "36.112.908, 14 de agosto del 97. Sofía Benítez."
+    },
+    {
+      "role": "user",
+      "text": "Gracias, Sofía. Antes de hacer la baja, ¿me contás un poco más? ¿Es solo por el precio o hay algo más?"
+    },
+    {
+      "role": "assistant",
+      "text": "Bueno, el mes pasado me subió como un 20 %. Y además me mudo el mes que viene con mi pareja, que ya tiene otra empresa."
+    },
+    {
+      "role": "user",
+      "text": "Ah, entiendo. Te comento que hay una promoción de 30 % por seis meses, pero si te mudás a una casa que ya tiene servicio, no tiene mucho sentido que la tomes. Si preferís, avanzamos con la baja."
+    },
+    {
+      "role": "assistant",
+      "text": "Sí, prefiero la baja."
+    },
+    {
+      "role": "user",
+      "text": "Perfecto. Te la dejo programada para el día que te mudes, así no te quedás sin internet antes. ¿Qué día es?"
+    },
+    {
+      "role": "assistant",
+      "text": "El 30."
+    },
+    {
+      "role": "user",
+      "text": "Listo, baja el 30. El módem es en comodato, o sea que es de la empresa: lo podés llevar a cualquier sucursal o te lo pasan a buscar sin costo. La última factura te llega proporcional hasta el 30. Tu número de gestión es 8820-114. ¿Te quedó alguna duda?"
+    },
+    {
+      "role": "assistant",
+      "text": "No, re claro. Gracias."
+    },
+    {
+      "role": "user",
+      "text": "Gracias a vos, Sofía. Que te vaya lindo con la mudanza."
+    }
+  ]
+}
