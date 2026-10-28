@@ -39,6 +39,11 @@
   const firstName = n => (n || "").split(/\s+/)[0] || n;
   const enPersona = e => T.prompts.enPersona(e);
   const clientName = e => (e.cliente || "El cliente").split(",")[0].trim();
+  // Quién arranca la llamada (ver prompts.js): "atiende" = entrante, "llama" = saliente.
+  const INICIO_LLAMADA = {
+    atiende: { brief: "Llamada entrante: cuando arranca, atendés vos y saludás primero.", espera: "Atendiste la llamada: saludá vos primero" },
+    llama: { brief: "Llamada saliente: llamás vos. Cuando atiendan, presentate y decí para qué llamás.", espera: "" }
+  };
   const fmtDate = iso => { try { return new Date(iso).toLocaleString("es-AR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" }); } catch (_) { return iso; } };
   const fmtDur = s => `${Math.floor(s / 60)}:${String(Math.floor(s % 60)).padStart(2, "0")}`;
   let toastT;
@@ -83,8 +88,9 @@
     params: {},
     cfg: null,          // configuración de la empresa (la carga la persona responsable)
     server: null,       // /api/config
-    candidato: store.get("tutoring.candidato", "Lucas Ferreyra"),
-    voiceName: store.get("tutoring.voice", ""),
+    usuario: null,      // /api/yo: { id, usuario, nombre, rol, debeCambiar }
+    candidato: "",      // el nombre sale de la sesión
+    voiceName: "",
     informes: [],
     dirty: false,
     engine: null,
@@ -93,17 +99,19 @@
     report: null
   };
   let navToken = 0;   // corta el trabajo asíncrono de una pantalla que ya se abandonó
-  const J = store.get("tutoring.junior", { chats: [], current: null }); // chats del junior
-  const JUNIOR = { name: "Camila Ruiz", role: "Junior · semana 3" };
+  // Lo que se guarda en este navegador va separado por usuario: en un aula varios comparten la compu.
+  const k = n => "tutoring." + (S.usuario ? S.usuario.id : "anonimo") + "." + n;
+  let J = { chats: [], current: null }; // chats del junior (se cargan al ingresar)
   // Guardamos solo las últimas conversaciones: el localStorage tiene ~5 MB y los
   // chats con código pegado lo llenan rápido.
   const MAX_CHATS = 20;
   const saveJ = () => {
     if (J.chats.length > MAX_CHATS) J.chats = J.chats.slice(-MAX_CHATS);
-    store.set("tutoring.junior", { chats: J.chats.map(c => ({ ...c, turns: c.turns.filter(t => !t.pending) })), current: J.current });
+    store.set(k("junior"), { chats: J.chats.map(c => ({ ...c, turns: c.turns.filter(t => !t.pending) })), current: J.current });
   };
 
   const VIEW_LABEL = {
+    login: "Ingresar", nuevaClave: "Creá tu contraseña", cuenta: "Tu cuenta",
     sims: "Simulaciones por voz", misinformes: "Mis informes", brief: "Simulación", call: "Llamada en curso", corta: "Llamada muy corta", evaluating: "Evaluando", report: "Informe",
     chat: "Mentor del equipo",
     contexto: "Contexto de la empresa", escenarios: "Escenarios de simulación", criterios: "Criterios de evaluación", informes: "Informes de candidatos"
@@ -124,14 +132,16 @@
     $("side").classList.remove("open");
     $("menu").setAttribute("aria-expanded", "false");
   }
-  function setProfile(p) {
-    if (S.dirty && S.profile === "empresa" && p !== "empresa" && !confirm("Hay cambios sin guardar en la configuración. ¿Salir igual? (Los cambios siguen aplicados en esta sesión.)")) return;
-    S.profile = p;
-    go(p === "estudiante" ? "sims" : p === "junior" ? "chat" : "contexto");
-  }
+  const INICIO = { estudiante: "sims", junior: "chat", empresa: "informes" };
+  const ROL_LABEL = { estudiante: "Candidato", junior: "Junior", empresa: "Empresa" };
 
   function render() {
-    document.querySelectorAll(".seg button").forEach(b => b.setAttribute("aria-pressed", String(b.dataset.profile === S.profile)));
+    // Lo que deja abierto una vista (por ejemplo, el micrófono de la prueba de audio) se cierra al salir o redibujar.
+    if (S.alSalirDeVista) { const f = S.alSalirDeVista; S.alSalirDeVista = null; try { f(); } catch (_) {} }
+    // Sin sesión (o con la contraseña por crear) no hay barra lateral ni barra superior.
+    document.body.classList.toggle("sin-sesion", !S.usuario || S.usuario.debeCambiar);
+    document.body.dataset.rol = S.usuario ? S.usuario.rol : "";
+    cerrarMenuCuenta();
     renderSide();
     renderTop();
     const view = $("view");
@@ -184,10 +194,10 @@
 
   function renderSide() {
     const nav = $("sideNav"); nav.replaceChildren();
-    let person;
+    if (!S.usuario || !S.cfg) return;
+    const person = { name: S.usuario.nombre, role: ROL_LABEL[S.usuario.rol] || S.usuario.rol };
     if (S.profile === "estudiante") {
       nav.append(h("nav", { class: "nav" }, navBtn("sims", "Simulaciones", "sims"), navBtn("misinformes", "Mis informes", "reports")));
-      person = { name: S.candidato, role: "Estudiante · UTN" };
     } else if (S.profile === "junior") {
       nav.append(h("button", { class: "new", onclick: () => { J.current = null; saveJ(); go("chat"); $("input").focus(); } }, svg('<path d="M8 3v10M3 8h10" stroke="#fff" stroke-width="1.8" stroke-linecap="round"/>', "0 0 16 16"), "Nuevo chat"));
       nav.append(h("div", { class: "side-label", text: "Conversaciones" }));
@@ -195,13 +205,10 @@
       if (!J.chats.some(deEstaEmpresa)) hist.append(h("div", { class: "empty", text: "Todavía no hay conversaciones." }));
       J.chats.slice().reverse().filter(deEstaEmpresa).forEach(c => hist.append(h("button", { class: c.id === J.current ? "on" : null, text: c.title, title: c.title, onclick: () => { J.current = c.id; saveJ(); go("chat"); } })));
       nav.append(hist);
-      person = JUNIOR;
     } else {
       nav.append(h("nav", { class: "nav" },
         navBtn("contexto", "Contexto", "ctx"), navBtn("escenarios", "Escenarios", "esc"),
         navBtn("criterios", "Criterios", "crit"), navBtn("informes", "Informes", "reports")));
-      const r = S.cfg.responsable || {};
-      person = { name: r.nombre || "Responsable", role: (r.rol ? r.rol + " · " : "") + S.cfg.empresa };
     }
     $("meName").textContent = person.name; $("meRole").textContent = person.role; $("meAv").textContent = initials(person.name);
   }
@@ -213,8 +220,6 @@
   // ------------------------------------------------------------------
   VIEWS.sims = view => {
     const col = h("div", { class: "col" });
-    const nameInput = h("input", { id: "candidato", type: "text", value: S.candidato, "aria-label": "Tu nombre",
-      onchange: e => { S.candidato = e.target.value.trim() || "Candidato"; store.set("tutoring.candidato", S.candidato); renderSide(); } });
     const cards = h("div", { class: "cards" });
     if (!S.cfg.escenarios.length) cards.append(h("div", { class: "notice", text: "Todavía no hay escenarios cargados. La persona responsable los crea desde el perfil Empresa → Escenarios." }));
     S.cfg.escenarios.forEach(e => cards.append(
@@ -227,7 +232,6 @@
       h("p", { class: "hello", text: `Hola, ${firstName(S.candidato)}` }),
       h("h1", { class: "ask", text: "¿Qué situación querés practicar?" }),
       h("p", { class: "sub", text: `Hablás por voz con un cliente o con alguien del equipo de ${S.cfg.empresa}. Al terminar, recibís un informe con tus fortalezas y lo que podés mejorar.` }),
-      h("div", { class: "name-row" }, h("label", { for: "candidato", text: "Practicás como" }), nameInput),
       cards));
     const mine = S.informes.filter(r => r.candidato === S.candidato).slice(0, 5);
     if (mine.length) {
@@ -266,10 +270,19 @@
     col.append(h("div", null, h("div", { class: "eyebrow", text: `Simulación · ${e.duracion || 5} min` }), h("h1", { text: e.titulo }), h("p", { class: "lead", text: e.resumen })));
     col.append(h("div", { class: "info" },
       h("div", null, h("div", { class: "eyebrow", text: "Con quién hablás" }), h("p", { text: e.cliente }))));
+    // Lo que un operador ve en el sistema y las reglas de la campaña: sin esto no sabe qué ofrecer ni qué validar.
+    const ficha = String(e.ficha || "").split("\n").map(l => l.trim()).filter(Boolean);
+    if (ficha.length) col.append(h("div", { class: "info una" },
+      h("div", null, h("div", { class: "eyebrow", text: "Lo que tenés a mano" }),
+        h("ul", { class: "tips" }, ...ficha.map(l => {
+          const m = l.match(/^([^:"]{2,40}):\s*(.+)$/);
+          return m ? h("li", null, h("b", { text: m[1] + ": " }), m[2]) : h("li", { text: l });
+        })))));
     if (e.glosario && e.glosario.length) col.append(h("div", { class: "info" },
       h("div", null, h("div", { class: "eyebrow", text: "Palabras que vas a escuchar" }),
         h("ul", { class: "tips" }, ...e.glosario.map(g => h("li", null, h("b", { text: g.termino + ": " }), g.significa))))));
     col.append(h("ul", { class: "tips" },
+      INICIO_LLAMADA[e.inicio] ? h("li", null, h("b", { text: INICIO_LLAMADA[e.inicio].brief })) : null,
       h("li", { text: `Hablá con naturalidad. Cuando hacés una pausa, ${clientName(e)} responde.` }),
       h("li", { text: `Si ${clientName(e)} está hablando, tocá la esfera para interrumpir.` }),
       h("li", { text: enPersona(e) ? "La conversación termina cuando se despiden o cuando tocás Terminar." : "La llamada termina cuando se despiden o cuando tocás Colgar." })));
@@ -282,10 +295,8 @@
     const vozCfg = S.server.voice || {};
     if (vozCfg.provider === "gemini-live" && !(vozCfg.geminiLive && vozCfg.geminiLive.disponible)) col.append(h("div", { class: "notice", text: `Falta GEMINI_API_KEY en el .env: esta simulación usa ${motorDeVoz() === "vapi" ? "Vapi" : "la voz del navegador"}. Para la voz natural con Gemini Live, cargá la key y reiniciá el servidor.` }));
     if (vozCfg.provider === "vapi" && !vozCfg.vapiPublicKey) col.append(h("div", { class: "notice", text: "Falta VAPI_PUBLIC_KEY en el .env: esta simulación usa la voz del navegador. Para la conversación natural con Vapi, cargá la key y reiniciá el servidor." }));
-    if (motorDeVoz() === "gemini-live") col.append(h("p", { class: "muted", text: "Voz natural con Gemini Live: podés interrumpir al cliente hablando encima. Con auriculares suena mejor." }));
-    if (motorDeVoz() === "vapi") col.append(h("p", { class: "muted", text: "Voz natural con Vapi: podés interrumpir al cliente hablando encima." }));
     if (motorDeVoz() === "browser") {
-      const sel = h("select", { id: "voiceSel", "aria-label": "Voz del cliente", onchange: ev => { S.voiceName = ev.target.value; store.set("tutoring.voice", S.voiceName); } });
+      const sel = h("select", { id: "voiceSel", "aria-label": "Voz del cliente", onchange: ev => { S.voiceName = ev.target.value; store.set(k("voice"), S.voiceName); } });
       const test = h("button", { class: "btn-o", onclick: () => {
         if (!("speechSynthesis" in window)) return;
         speechSynthesis.cancel();
@@ -302,9 +313,127 @@
       });
       col.append(h("div", { class: "voice-row" }, h("label", { for: "voiceSel", class: "muted", text: "Voz del cliente" }), sel, test));
     }
+    col.append(pruebaDeAudio(motorDeVoz() === "gemini-live"));
     col.append(h("div", null, h("button", { class: "btn lg", id: "startCall", disabled: !S.server.hasKey, onclick: () => go("call", { id: e.id }) }, icon(enPersona(e) ? "esc" : "phone"), enPersona(e) ? "Empezar conversación" : "Empezar llamada")));
     view.append(col);
   };
+
+  // Antes de la llamada: elegir micrófono y salida, ver que el micrófono capte y escuchar un sonido de prueba.
+  // Elegir dispositivo solo lo respeta Gemini Live; con los otros motores se usan los del sistema.
+  function pruebaDeAudio(eligeDispositivos) {
+    const md = navigator.mediaDevices;
+    const AC = window.AudioContext || window.webkitAudioContext;
+    const eligeSalida = eligeDispositivos && AC && typeof AC.prototype.setSinkId === "function";
+    let stream = null, ctx = null, raf = 0, activo = true, seEscucho = false;
+    const guardar = () => store.set(k("audio"), S.audio);
+
+    const barra = h("i");
+    const nivel = h("div", { class: "nivel", role: "meter", "aria-label": "Nivel del micrófono", "aria-valuemin": "0", "aria-valuemax": "100", "aria-valuenow": "0", hidden: true }, barra);
+    const msg = h("p", { class: "audio-msg", "aria-live": "polite" });
+    const decir = (texto, tipo) => { msg.textContent = texto; msg.className = "audio-msg" + (tipo ? " " + tipo : ""); };
+    const selIn = h("select", { "aria-label": "Micrófono", onchange: ev => { S.audio.entrada = ev.target.value; guardar(); abrirMic(); } });
+    const selOut = h("select", { "aria-label": "Salida de audio", onchange: ev => { S.audio.salida = ev.target.value; guardar(); } });
+    const permitir = h("button", { class: "btn-o", type: "button", onclick: () => abrirMic() }, icon("mic"), "Probar micrófono");
+    const probar = h("button", { class: "btn-o", type: "button", onclick: () => sonar() }, icon("play"), "Probar sonido");
+
+    async function listar() {
+      if (!eligeDispositivos || !md || !md.enumerateDevices) return;
+      let disp = [];
+      try { disp = await md.enumerateDevices(); } catch (_) {}
+      const llenar = (sel, tipo, nombre, elegido) => {
+        // "default" y "communications" son alias de Chrome: el predeterminado ya es la primera opción.
+        const lista = disp.filter(d => d.kind === tipo && d.deviceId && !/^(default|communications)$/.test(d.deviceId));
+        sel.replaceChildren(h("option", { value: "", text: "Predeterminado del sistema" }),
+          ...lista.map((d, i) => h("option", { value: d.deviceId, text: d.label || `${nombre} ${i + 1}`, selected: d.deviceId === elegido })));
+        if (elegido && !lista.some(d => d.deviceId === elegido)) sel.value = "";
+      };
+      llenar(selIn, "audioinput", "Micrófono", S.audio.entrada);
+      if (eligeSalida) llenar(selOut, "audiooutput", "Salida", S.audio.salida);
+    }
+
+    async function abrirMic() {
+      if (!md || !md.getUserMedia || !AC) return decir("Este navegador no permite probar el micrófono. Usá Chrome o Edge.", "mal");
+      cerrarMic();
+      const pedir = id => md.getUserMedia({ audio: id ? { deviceId: { exact: id } } : true });
+      try { stream = await pedir(S.audio.entrada); }
+      catch (e) {
+        // El micrófono elegido ya no está (se desenchufó): volvemos al predeterminado.
+        if (S.audio.entrada && /Overconstrained|NotFound/.test(e && e.name)) {
+          S.audio.entrada = ""; guardar();
+          try { stream = await pedir(""); } catch (e2) { e = e2; }
+        }
+        if (!stream) {
+          return decir(e && e.name === "NotAllowedError"
+            ? "El navegador bloqueó el micrófono. Permitilo desde el candado de la barra de direcciones y volvé a probar."
+            : "No encontramos un micrófono. Conectá uno y volvé a probar.", "mal");
+        }
+      }
+      if (!activo) return cerrarMic();
+      permitir.hidden = true; nivel.hidden = false;
+      seEscucho = false;
+      decir("Decí algo: la barra se tiene que mover.");
+      listar();
+      ctx = new AC();
+      const an = ctx.createAnalyser(); an.fftSize = 1024;
+      ctx.createMediaStreamSource(stream).connect(an);
+      const buf = new Float32Array(an.fftSize);
+      let suave = 0;
+      const tick = () => {
+        if (!activo || !ctx) return;
+        an.getFloatTimeDomainData(buf);
+        let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+        const v = Math.min(1, Math.sqrt(s / buf.length) * 6);
+        suave = Math.max(v, suave * 0.9);
+        barra.style.width = (suave * 100).toFixed(1) + "%";
+        nivel.setAttribute("aria-valuenow", String(Math.round(suave * 100)));
+        if (!seEscucho && v > 0.12) { seEscucho = true; decir("Te escuchamos bien.", "bien"); }
+        raf = requestAnimationFrame(tick);
+      };
+      tick();
+    }
+    function cerrarMic() {
+      cancelAnimationFrame(raf); raf = 0;
+      if (stream) stream.getTracks().forEach(t => { try { t.stop(); } catch (_) {} });
+      if (ctx) ctx.close().catch(() => {});
+      stream = null; ctx = null;
+    }
+
+    // Dos notas cortas por la salida elegida.
+    async function sonar() {
+      if (!AC) return;
+      const c = new AC();
+      if (eligeSalida && S.audio.salida) { try { await c.setSinkId(S.audio.salida); } catch (_) {} }
+      const t0 = c.currentTime + 0.05;
+      [[660, 0], [880, 0.22]].forEach(([f, d]) => {
+        const o = c.createOscillator(), g = c.createGain();
+        o.type = "sine"; o.frequency.value = f;
+        g.gain.setValueAtTime(0, t0 + d);
+        g.gain.linearRampToValueAtTime(0.22, t0 + d + 0.02);
+        g.gain.exponentialRampToValueAtTime(0.001, t0 + d + 0.5);
+        o.connect(g); g.connect(c.destination);
+        o.start(t0 + d); o.stop(t0 + d + 0.55);
+      });
+      setTimeout(() => c.close().catch(() => {}), 1200);
+      if (!seEscucho) decir("¿Lo escuchaste? Si no, elegí otra salida o subí el volumen.");
+    }
+
+    S.alSalirDeVista = () => { activo = false; cerrarMic(); if (md) md.removeEventListener("devicechange", listar); };
+    if (md && md.addEventListener) md.addEventListener("devicechange", listar);
+    listar();
+    // Si el micrófono ya está permitido, la barra arranca sola, como en las videollamadas.
+    if (navigator.permissions && navigator.permissions.query) {
+      navigator.permissions.query({ name: "microphone" }).then(p => { if (p.state === "granted" && activo) abrirMic(); }, () => {});
+    }
+
+    const fila = (etiqueta, control, ...resto) => h("div", { class: "audio-fila" },
+      h("span", { class: "audio-lbl", text: etiqueta }), control, h("div", { class: "audio-acc" }, ...resto));
+    const delSistema = t => h("span", { class: "audio-sis", text: t });
+    return h("div", { class: "audio" },
+      h("div", { class: "eyebrow", text: "Antes de llamar, probá tu audio" }),
+      fila("Micrófono", eligeDispositivos ? selIn : delSistema("El del sistema"), nivel, permitir),
+      fila("Salida", eligeSalida ? selOut : delSistema("La del sistema"), probar),
+      msg);
+  }
 
   // ------------------------------------------------------------------
   // ESTUDIANTE: llamada por voz
@@ -330,15 +459,29 @@
     const kbBtn = h("button", { class: "round", "aria-label": "Escribir en vez de hablar", "aria-pressed": "false", "aria-expanded": "false", title: "Escribir en vez de hablar" }, icon("keyboard"));
     const txBtn = h("button", { class: "round", "aria-label": "Ver transcripción", "aria-pressed": "false", title: "Ver transcripción" }, icon("list"));
     const hang = h("button", { class: "hang", id: "hang" }, icon("hangup"), enPersona(e) ? "Terminar" : "Colgar");
+    // Llamada por teléfono con un cliente: suena el timbre y el candidato atiende con un botón (entrante),
+    // o escucha el tono de llamada hasta que el cliente atiende (saliente, "llama").
+    const porTelefono = !enPersona(e) && !T.prompts.esLider(e);
+    const saliente = porTelefono && e.inicio === "llama";
+    // Hasta que el candidato toca el botón verde: Atender (entrante) o Llamar (saliente).
+    let sonando = porTelefono;
+    // En la entrante el candidato saluda primero: conectamos mientras suena, con el micrófono cerrado.
+    const conectaMientrasSuena = sonando && e.inicio === "atiende";
+    const atender = saliente
+      ? h("button", { class: "atender", id: "llamar" }, icon("phone"), "Llamar")
+      : h("button", { class: "atender", id: "atender", disabled: conectaMientrasSuena }, icon("phone"), "Atender");
     const typeInput = h("input", { type: "text", placeholder: "Escribí tu respuesta y apretá Enter", "aria-label": "Tu respuesta" });
     const typebar = h("form", { class: "typebar", hidden: true, onsubmit: ev => { ev.preventDefault(); S.engine && S.engine.sendText(typeInput.value); typeInput.value = ""; } },
       typeInput, h("button", { class: "btn", type: "submit", text: "Enviar" }));
 
-    view.append(h("div", { class: "call" },
+    // Mientras suena, la pantalla muestra solo el timbre y el botón verde, al centro (.call.sonando).
+    const llamada = h("div", { class: sonando ? "call sonando" : "call" },
       h("div", { class: "call-top" }, h("div", { class: "who" }, h("b", { text: cName }), h("span", { text: e.titulo })), timer),
-      h("div", { class: "stage" }, orb, stateLbl, cap, capU, note),
+      h("div", { class: "stage" }, orb, stateLbl, sonando ? atender : null, cap, capU, note),
       h("div", { class: "controls" }, micBtn, hang, kbBtn, txBtn),
-      typebar, txList));
+      typebar, txList);
+    view.append(llamada);
+    const yaAtendio = () => { sonando = false; llamada.classList.remove("sonando"); atender.remove(); };
 
     function addTx(role, text) {
       turns.push({ role, text });
@@ -358,7 +501,10 @@
       vapiAssistantId: S.server.voice.vapiAssistantId,
       vapi: S.server.voice.vapi,
       geminiLive: S.server.voice.geminiLive,
-      escenario: e
+      escenario: e,
+      telefono: S.cfg.vozTelefonica !== false,
+      entrada: S.audio && S.audio.entrada,
+      salida: S.audio && S.audio.salida
     });
     S.engine = engine;
 
@@ -366,8 +512,15 @@
       if (S.engine !== engine) return;
       switch (ev.type) {
         case "state":
+          if (sonando) { if (ev.state === "listening") atender.disabled = false; break; }
+          // Saliente: sigue sonando el tono ("Llamando a…") hasta que el cliente atiende y habla.
+          if (saliente && S.timbre) { if (ev.state !== "speaking") break; pararTimbre(); conectoLaLinea(); }
+          if (S.linea) S.linea.hablando(ev.state === "speaking");
           orb.className = "orb big " + ev.state;
-          stateLbl.textContent = muted && ev.state === "listening" ? "Micrófono silenciado · escribí tu respuesta" : LABEL[ev.state] || "";
+          stateLbl.textContent = ev.state === "listening" && !turns.length && INICIO_LLAMADA[e.inicio] && INICIO_LLAMADA[e.inicio].espera
+            ? INICIO_LLAMADA[e.inicio].espera + (muted ? " · escribí tu saludo" : "")
+            : muted && ev.state === "listening" ? "Micrófono silenciado · escribí tu respuesta"
+            : LABEL[ev.state] || "";
           // Mientras el cliente piensa, dejamos a la vista que la llamada sigue.
           if (ev.state === "thinking") { cap.textContent = "···"; cap.classList.add("pensando"); }
           if (ev.state === "listening") note.hidden = true;
@@ -378,8 +531,11 @@
         case "turn":
           addTx(ev.role, ev.text);
           if (ev.role === "assistant") { cap.classList.remove("pensando"); cap.textContent = ev.text; } else capU.textContent = "";
+          if (ev.role === "assistant" && saliente && S.timbre) { pararTimbre(); conectoLaLinea(); }
           break;
         case "error":
+          if (sonando && !ev.fatal && ev.code !== "mic") break;   // el aviso de "no se escucha nada" no aplica mientras suena
+          if (ev.fatal) { pararTimbre(); yaAtendio(); }
           if (!ev.message) { note.hidden = true; break; }
           note.hidden = false; note.textContent = ev.message;
           // El motor de voz no pudo arrancar: ofrecemos seguir con el siguiente para no frenar la demo.
@@ -423,13 +579,60 @@
       showTx = !showTx; txList.hidden = !showTx;
       txBtn.classList.toggle("on", showTx); txBtn.setAttribute("aria-pressed", String(showTx));
     });
-    hang.addEventListener("click", () => engine.stop("user"));
+    hang.addEventListener("click", () => {
+      // Cortar mientras suena, antes de que arranque la voz: no hubo conversación.
+      if (!arranco) { pararTimbre(); S.engine = null; return go("brief", { id: e.id }); }
+      engine.stop("user");
+    });
 
     if (provider === "browser" && !sup.stt) { muted = true; micBtn.disabled = true; abrirTeclado(false); }
 
     clearInterval(S.timer);
     S.timer = setInterval(() => { timer.textContent = fmtDur((Date.now() - started) / 1000); }, 500);
-    engine.start({ system: T.prompts.voz(S.cfg, e, S.candidato), firstUserTurn: T.prompts.vozInicio(e), onEvent });
+    let arranco = false;
+    const arrancar = () => { arranco = true; engine.start({ system: T.prompts.voz(S.cfg, e, S.candidato), firstUserTurn: T.prompts.vozInicio(e), onEvent }); };
+    pararTimbre();
+    if (!porTelefono) return arrancar();
+    const salidaElegida = provider === "gemini-live" && S.audio ? S.audio.salida : "";
+    // Se conectó la llamada: arranca a contar y, con la voz telefónica, suena el ruido de línea de fondo.
+    function conectoLaLinea() {
+      started = Date.now();
+      if (S.cfg.vozTelefonica !== false && !S.linea) {
+        S.linea = T.voice.linea(salidaElegida);
+        S.linea.hablando(engine.state === "speaking");
+      }
+    }
+    if (saliente) {
+      // Antes de marcar: a quién llamás y el botón Llamar. Recién ahí suena el tono de llamada.
+      orb.className = "orb big";
+      stateLbl.textContent = `${cName} · ${telefonoDe(e)}`;
+      atender.addEventListener("click", () => {
+        if (!sonando) return;
+        yaAtendio();
+        orb.className = "orb big connecting";
+        stateLbl.textContent = `Llamando a ${firstName(cName)}…`;
+        S.timbre = T.voice.tono("saliente", salidaElegida);
+        // Primero suena un tono entero; el cliente atiende (y se corta el tono) cuando empieza a hablar.
+        setTimeout(() => { if (S.engine === engine) arrancar(); }, 3500);
+      });
+      setTimeout(() => { if (sonando) atender.focus(); }, 0);
+      return;
+    }
+    S.timbre = T.voice.tono("entrante", salidaElegida);
+    orb.className = "orb big ringing";
+    stateLbl.textContent = `Llamada entrante · ${S.cfg.empresa || "cliente"}`;
+    atender.addEventListener("click", () => {
+      if (!sonando) return;
+      yaAtendio();
+      pararTimbre();
+      note.hidden = true;
+      conectoLaLinea();
+      if (!conectaMientrasSuena) return arrancar();
+      if (!muted) engine.setMuted(false);
+      onEvent({ type: "state", state: engine.state });
+    });
+    if (conectaMientrasSuena) { arrancar(); engine.setMuted(true); }
+    setTimeout(() => { if (sonando && !atender.disabled) atender.focus(); }, 0);
   };
 
   // Motores de voz que se pueden usar, en orden: primero el del .env (VOICE_PROVIDER),
@@ -446,12 +649,28 @@
     return motoresDeVoz()[0];
   }
 
+  function pararTimbre() {
+    if (S.timbre) { S.timbre.parar(); S.timbre = null; }
+  }
+  function pararLinea() {
+    if (S.linea) { S.linea.parar(); S.linea = null; }
+  }
+  // Un número de celular inventado pero fijo para cada escenario, para la pantalla de "Llamar".
+  function telefonoDe(e) {
+    let n = 0;
+    for (const c of String(e.id || e.titulo || "")) n = (n * 31 + c.charCodeAt(0)) >>> 0;
+    const d = String(n % 1e7).padStart(7, "0");
+    return `11 6${d.slice(0, 3)}-${d.slice(3)}`;
+  }
+
   function endCallSilently() {
+    pararTimbre(); pararLinea();
     clearInterval(S.timer);
     if (S.engine) { const en = S.engine; S.engine = null; try { en.stop("user"); } catch (_) {} }
   }
 
   function finishCall(e, turns, seconds, reason) {
+    pararTimbre(); pararLinea();
     clearInterval(S.timer);
     S.engine = null;
     const userTurns = turns.filter(t => t.role === "user").length;
@@ -646,7 +865,7 @@
       actions().forEach(a => cards.append(h("button", { class: "card", onclick: () => startAction(a) }, icon(a.icon), h("b", { text: a.title }), h("span", { text: a.desc }))));
       col.append(h("div", { class: "hero compact" },
         h("div", { class: "orb", "aria-hidden": "true" }),
-        h("p", { class: "hello", text: `Hola, ${firstName(JUNIOR.name)}` }),
+        h("p", { class: "hello", text: `Hola, ${firstName(S.usuario.nombre)}` }),
         h("h1", { class: "ask", text: "¿En qué te ayudo hoy?" }),
         h("p", { class: "sub", text: `Conozco cómo trabaja ${S.cfg.empresa}. Te explico cómo se hace cada cosa y por qué importa para el negocio.` }),
         cards));
@@ -755,7 +974,7 @@
     jCtl = new AbortController();
     const cid = c.id;
     try {
-      const sys = T.prompts.juniorPartes(S.cfg, c.action, firstName(JUNIOR.name));
+      const sys = T.prompts.juniorPartes(S.cfg, c.action, firstName(S.usuario.nombre));
       reply.content = await T.api.claude({
         purpose: "chat", maxTokens: 1600, signal: jCtl.signal,
         system: sys.estable + sys.variable, systemEstable: sys.estable.length,
@@ -938,6 +1157,9 @@
   VIEWS.escenarios = view => {
     const col = h("div", { class: "wide cfg" });
     col.append(cfgHead("Escenarios de simulación", "Las situaciones que practican los candidatos. La IA interpreta al cliente (o al líder que da una tarea) con estos datos."));
+    col.append(h("label", { class: "chk" },
+      h("input", { type: "checkbox", id: "vozTelefonica", checked: S.cfg.vozTelefonica !== false, onchange: ev => { S.cfg.vozTelefonica = ev.target.checked; markDirty(); } }),
+      h("span", null, h("b", { text: "Voz telefónica" }), " · en las llamadas, la voz del cliente suena como por teléfono, no tan limpia (solo con Gemini Live). Si en la sala no se entiende bien, apagala.")));
     const open = S.params.open;
     S.cfg.escenarios.forEach((e, i) => {
       const isOpen = open === e.id;
@@ -961,7 +1183,10 @@
           field("Personalidad", "Cómo habla y cómo reacciona.", tx("personalidad")),
           field("Situación", "Incluí los datos que solo da si le preguntan.", tx("situacion")),
           field("Objetivo del candidato", null, tx("objetivo")),
+          field("Lo que tiene a mano el candidato", "Lo que vería en el sistema y las reglas que conoce (qué puede ofrecer, plazos, cómo validar). Una línea por dato, con \"Título: texto\". Se muestra antes de la llamada; no pongas lo que el cliente tiene que contar.", tx("ficha")),
           h("div", { class: "grid2" }, field("Duración (min)", null, dur), field("Dificultad", null, dif)),
+          field("Quién arranca la llamada", "En un call center, en las llamadas entrantes saluda primero quien atiende.", h("select", { onchange: ev => { if (ev.target.value) e.inicio = ev.target.value; else delete e.inicio; markDirty(); } },
+            [["", "El cliente habla primero"], ["atiende", "El candidato atiende y saluda (llamada entrante)"], ["llama", "El candidato llama (llamada saliente)"]].map(([v, t]) => h("option", { value: v, text: t, selected: (e.inicio || "") === v })))),
           field("Voz del cliente (Gemini Live y Vapi)", "Automática: se elige por el nombre.", h("select", { onchange: ev => { e.voz = ev.target.value; markDirty(); } },
             [["", "Automática"], ["femenina", "Femenina"], ["masculina", "Masculina"]].map(([v, t]) => h("option", { value: v, text: t, selected: (e.voz || "") === v })))),
           h("div", null, h("button", { class: "btn-o btn-danger", onclick: () => { if (confirm(`¿Eliminar "${e.titulo}"?`)) { S.cfg.escenarios.splice(i, 1); markDirty(); render(); } } }, icon("trash"), "Eliminar escenario"))));
@@ -1013,16 +1238,107 @@
   };
 
   // ------------------------------------------------------------------
+  // Ingreso y cuenta
+  // ------------------------------------------------------------------
+  const MIN_CLAVE = 8;
+  const logo = () => h("div", { class: "logo" }, h("img", { class: "mark", src: "img/logo.png", alt: "" }), "Tutoring");
+  const errorForm = texto => h("p", { class: "form-err", role: "alert", text: texto || "", hidden: !texto });
+  const campoClave = (id, autocomplete) => h("input", { id, type: "password", autocomplete, required: true, minlength: id === "claveActual" ? null : MIN_CLAVE });
+
+  VIEWS.login = view => {
+    const usuario = h("input", { id: "loginUsuario", type: "text", autocomplete: "username", autocapitalize: "none", spellcheck: "false", required: true });
+    const clave = campoClave("loginClave", "current-password");
+    const err = errorForm(S.params.aviso);
+    const btn = h("button", { id: "loginEntrar", class: "btn lg", type: "submit", text: "Ingresar" });
+    view.append(h("form", { class: "auth-card", novalidate: true, onsubmit: async ev => {
+      ev.preventDefault();
+      if (!usuario.value.trim() || !clave.value) { err.textContent = "Completá tu usuario y tu contraseña."; err.hidden = false; return; }
+      btn.disabled = true; err.hidden = true;
+      try { await T.api.auth.ingresar(usuario.value.trim(), clave.value); await entrar(); }
+      catch (e) { err.textContent = T.api.errorCopy(e); err.hidden = false; clave.value = ""; clave.focus(); }
+      finally { btn.disabled = false; }
+    } },
+      logo(),
+      h("h1", { text: "Ingresá a tu cuenta" }),
+      field("Usuario", null, usuario),
+      field("Contraseña", "La primera vez, usá el código que te dieron.", clave),
+      err, btn));
+    requestAnimationFrame(() => usuario.focus());
+  };
+
+  // Formulario de contraseña nueva: lo usan el primer ingreso y "Tu cuenta".
+  function formClave({ pedirActual, alGuardar }) {
+    const actual = pedirActual ? campoClave("claveActual", "current-password") : null;
+    const nueva = campoClave("claveNueva", "new-password");
+    const repetir = campoClave("claveRepetir", "new-password");
+    const err = errorForm(), ok = h("p", { class: "form-ok", role: "status", hidden: true });
+    const btn = h("button", { id: "claveGuardar", class: "btn lg", type: "submit", text: "Guardar contraseña" });
+    const form = h("form", { class: "auth-form", novalidate: true, onsubmit: async ev => {
+      ev.preventDefault();
+      err.hidden = true; ok.hidden = true;
+      const fallo = nueva.value.length < MIN_CLAVE ? `La contraseña nueva tiene que tener al menos ${MIN_CLAVE} caracteres.`
+        : nueva.value !== repetir.value ? "Las dos contraseñas no coinciden." : "";
+      if (fallo) { err.textContent = fallo; err.hidden = false; return; }
+      btn.disabled = true;
+      try {
+        await T.api.auth.cambiarClave({ actual: actual ? actual.value : undefined, nueva: nueva.value });
+        form.reset();
+        await alGuardar(ok);
+      } catch (e) { err.textContent = T.api.errorCopy(e); err.hidden = false; }
+      finally { btn.disabled = false; }
+    } },
+      actual ? field("Contraseña actual", null, actual) : null,
+      field("Contraseña nueva", `Mínimo ${MIN_CLAVE} caracteres.`, nueva),
+      field("Repetila", null, repetir),
+      err, ok, btn);
+    return form;
+  }
+
+  VIEWS.nuevaClave = view => {
+    view.append(h("div", { class: "auth-card" },
+      logo(),
+      h("h1", { text: "Creá tu contraseña" }),
+      h("p", { class: "muted", text: `Hola, ${firstName(S.usuario.nombre)}. El código que usaste sirve una sola vez: elegí una contraseña que solo sepas vos.` }),
+      formClave({ pedirActual: false, alGuardar: () => entrar() }),
+      h("button", { class: "btn-o", type: "button", onclick: salir }, "Salir")));
+    requestAnimationFrame(() => $("claveNueva").focus());
+  };
+
+  VIEWS.cuenta = view => {
+    view.append(h("div", { class: "col" },
+      h("h1", { class: "ask", text: "Cambiar contraseña" }),
+      h("p", { class: "muted", text: `${S.usuario.nombre} · usuario ${S.usuario.usuario}. Al cambiarla se cierran tus otras sesiones abiertas.` }),
+      formClave({ pedirActual: true, alGuardar: ok => { ok.textContent = "Listo: tu contraseña cambió."; ok.hidden = false; } })));
+  };
+
+  // ------------------------------------------------------------------
   // Arranque
   // ------------------------------------------------------------------
-  document.querySelectorAll(".seg button").forEach(b => b.addEventListener("click", () => setProfile(b.dataset.profile)));
-  $("status").addEventListener("click", diagnosticar);
+  $("status").addEventListener("click", () => { if (S.usuario && S.usuario.rol === "empresa") diagnosticar(); });
+  T.api.onSinSesion(() => {
+    if (!S.usuario) return;
+    S.usuario = null; S.dirty = false;
+    go("login", { aviso: "Tu sesión venció. Volvé a ingresar." });
+  });
+  function cerrarMenuCuenta() { $("meMenu").hidden = true; $("me").setAttribute("aria-expanded", "false"); }
+  $("me").addEventListener("click", () => {
+    const abrir = $("meMenu").hidden;
+    $("meMenu").hidden = !abrir;
+    $("me").setAttribute("aria-expanded", String(abrir));
+  });
+  $("cuenta").addEventListener("click", () => go("cuenta"));
+  $("salir").addEventListener("click", salir);
+  document.addEventListener("click", ev => { if (!ev.target.closest(".me-wrap")) cerrarMenuCuenta(); });
   T.api.onProvider(data => { S.usandoRespaldo = true; if (S.server) { S.server.providerName = data.name; renderTop(); } });
   $("menu").addEventListener("click", () => {
     const abierto = $("side").classList.toggle("open");
     $("menu").setAttribute("aria-expanded", String(abierto));
   });
-  document.addEventListener("keydown", ev => { if (ev.key === "Escape" && $("side").classList.contains("open")) cerrarMenu(); });
+  document.addEventListener("keydown", ev => {
+    if (ev.key !== "Escape") return;
+    if (!$("meMenu").hidden) { cerrarMenuCuenta(); $("me").focus(); }
+    else if ($("side").classList.contains("open")) cerrarMenu();
+  });
   window.addEventListener("beforeunload", ev => {
     if (S.dirty || S.view === "call") { ev.preventDefault(); ev.returnValue = ""; }
   });
@@ -1033,6 +1349,31 @@
         "Esta app se abre desde el servidor: en la carpeta del proyecto ejecutá ", h("b", { text: "npm start" }), " y entrá a ", h("b", { text: "http://localhost:3000" }), "."));
       return;
     }
+    try { await entrar(); }
+    catch (e) { go("login", e.status === 401 ? {} : { aviso: T.api.errorCopy(e) }); }
+  }
+
+  // Escenarios que se cargaron de un ejemplo antes de que existiera "Lo que tenés a mano" (`ficha`):
+  // se completa con el texto del ejemplo, solo si el campo no existe. Si la empresa lo vació, queda vacío.
+  function completarDesdeEjemplos(cfg) {
+    const ejemplos = {};
+    Object.values(T.EJEMPLOS || {}).forEach(ej => (ej.config.escenarios || []).forEach(e => { ejemplos[e.id] = e; }));
+    (cfg.escenarios || []).forEach(e => {
+      const ej = ejemplos[e.id];
+      if (ej && ej.ficha && !("ficha" in e)) e.ficha = ej.ficha;
+    });
+  }
+
+  // Con la sesión ya abierta: datos del usuario, configuración, informes y su pantalla de inicio.
+  async function entrar() {
+    S.usuario = await T.api.auth.yo();
+    if (S.usuario.debeCambiar) return go("nuevaClave");
+    S.profile = S.usuario.rol;
+    S.candidato = S.usuario.nombre;
+    S.voiceName = store.get(k("voice"), "");
+    S.audio = Object.assign({ entrada: "", salida: "" }, store.get(k("audio"), {}));
+    J = store.get(k("junior"), { chats: [], current: null });
+    S.report = null; S.dirty = false;
     let errorConfig = null;
     try { S.server = await T.api.config(); }
     catch (e) { errorConfig = e; S.server = { hasKey: false, models: {}, ia: {}, voice: { provider: "browser" } }; }
@@ -1045,9 +1386,18 @@
     // Convierte el formato viejo (si hiciera falta) y completa lo que falte.
     S.cfg = T.core.migrarConfig(S.cfg) || T.core.normalizarConfig(clone(T.DEFAULTS));
     if (!S.cfg.empresa) S.cfg.empresa = T.DEFAULTS.empresa;
+    completarDesdeEjemplos(S.cfg);
     try { S.informes = await T.api.informes.list(); } catch (_) { S.informes = []; }
-    render();
+    go(INICIO[S.profile] || "sims");
     if (errorConfig) toast(T.api.errorCopy(errorConfig));
+  }
+
+  async function salir() {
+    if (S.dirty && !confirm("Hay cambios sin guardar en la configuración. ¿Salir igual?")) return;
+    try { await T.api.auth.salir(); } catch (_) {}
+    S.usuario = null; S.cfg = null; S.report = null; S.informes = []; S.dirty = false;
+    J = { chats: [], current: null };
+    go("login");
   }
   boot();
 })();

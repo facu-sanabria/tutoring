@@ -60,8 +60,11 @@ const puerto = await new Promise((res, rej) => {
   proc.on("exit", () => { clearTimeout(t); clearInterval(iv); rej(new Error("el servidor se cerró:\n" + salida)); });
 }).catch(e => { console.error("\n  " + e.message); terminar(1); });
 const BASE = `http://127.0.0.1:${puerto}`;
-const get = async p => (await fetch(BASE + p)).json();
-const post = async (p, body) => (await fetch(BASE + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) })).json();
+// Llave que escribe el servidor al arrancar (ver server.js): sin ella la API responde 401.
+const llaveLocal = dir => { try { return fs.readFileSync(path.join(dir, "llave-local.txt"), "utf8").trim(); } catch (_) { return ""; } };
+const LLAVE = { "x-llave-local": llaveLocal(dataDir) };
+const get = async p => (await fetch(BASE + p, { headers: LLAVE })).json();
+const post = async (p, body) => (await fetch(BASE + p, { method: "POST", headers: { "content-type": "application/json", ...LLAVE }, body: JSON.stringify(body) })).json();
 
 // ---------- una evaluación real, como la arma la app ----------
 function payloadEvaluacion() {
@@ -95,7 +98,7 @@ function payloadEvaluacion() {
 // Evaluación por la cadena real (la misma que usa la app, con carrera y respaldos).
 async function evaluarComoLaApp(payload) {
   const t0 = Date.now();
-  const r = await fetch(BASE + "/api/messages", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ ...payload, stream: true }) });
+  const r = await fetch(BASE + "/api/messages", { method: "POST", headers: { "content-type": "application/json", ...LLAVE }, body: JSON.stringify({ ...payload, stream: true }) });
   if (!r.ok) { let m = ""; try { m = (await r.json()).error.message; } catch (_) {} return { ok: false, ms: Date.now() - t0, error: m || r.statusText }; }
   const txt = await r.text();
   let texto = "", error = "", respaldo = "";

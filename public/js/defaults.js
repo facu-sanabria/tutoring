@@ -1085,8 +1085,198 @@ EN ANÁLISIS
     notasEvaluacion: "En el campo valoramos la claridad: si el encargado no entendió, el problema es nuestro. Cuando alguien recibe una tarea, preferimos diez preguntas a una suposición: valoramos que pregunte el para qué, los casos raros y con qué datos probar, y que acuerde cuándo muestra avance. Con embarques y datos de hacienda no se improvisa: no se toca nada sin autorización y se deriva rápido."
   };
 
+  // ---------------------------------------------------------------- MKT Contact Center (borrador, ver docs/escenarios-mkt.md)
+  // La campaña (ConectAR) es inventada: se reemplaza cuando MKT nos cuente una real.
+  const mkt = {
+    version: 2,
+    empresa: "MKT Contact Center",
+    rubro: "Servicios",
+    responsable: { nombre: "Equipo de capacitación", rol: "Recursos Humanos" },
+
+    contextos: [
+      g("proposito", `MKT Contact Center atiende por teléfono a los clientes de otras empresas. En esta campaña somos la atención al cliente de ConectAR, un proveedor de internet y TV.
+Cada llamada es la cara de ConectAR: el cliente no sabe que habla con un call center, sabe que habla con "su" empresa.
+Queremos que el cliente corte sabiendo qué va a pasar, cuándo y con un número para seguirlo.`),
+      g("oferta", `ConectAR vende internet por fibra y TV a hogares y comercios chicos.
+Los motivos de llamada más comunes: el servicio no anda, dudas o errores en la factura, pedidos de baja y reclamos que se repiten.
+Lo que más valora el cliente: que lo escuchen sin hacerle repetir todo, que le hablen claro y que no le prometan lo que después no pasa.`),
+      g("trabajo", `Llamadas entrantes: el operador atiende con el saludo de la campaña ("ConectAR, buen día, te habla (nombre). ¿En qué te puedo ayudar?").
+Llamadas salientes (por ejemplo, cobranzas): el operador se presenta con nombre y empresa y valida que habla con el titular antes de decir para qué llama.
+Cada grupo de operadores tiene una team leader que escucha llamadas grabadas (monitoreo de calidad) y da feedback.
+Al cortar, el operador tipifica la llamada: registra el motivo en el sistema.`),
+      g("problemas", `1. Saludar y validar la identidad: DNI del titular y fecha de nacimiento, antes de dar o pedir datos de la cuenta.
+2. Escuchar el problema completo sin interrumpir y sin hacer repetir lo que ya se dijo.
+3. Preguntar lo necesario para entender (desde cuándo, qué se probó, qué ve el cliente).
+4. Ofrecer la solución que corresponde o la alternativa posible, sin prometer lo que no depende de nosotros.
+5. Cerrar: resumir lo acordado, dar el número de gestión, decir qué pasa y cuándo, y preguntar si hay algo más.`),
+      g("clientes", `Tuteamos al cliente con respeto; a una persona mayor, si lo prefiere, de usted.
+Nunca discutimos ni nos ponemos a la defensiva: el enojo del cliente no es con nosotros.
+Si el cliente insulta: primera advertencia amable; si sigue, segunda advertencia avisando que se va a cortar; a la tercera se corta con un saludo y se registra.
+Hablamos simple: si usamos una palabra técnica, la explicamos.
+Si no sabemos algo, lo decimos y averiguamos; no inventamos.`),
+      g("calidad", `En cada llamada se revisa:
+- Saludo de la campaña y validación de identidad.
+- Que no se le hizo repetir datos al cliente.
+- Que la información dada sea correcta y dentro de lo permitido.
+- Número de gestión dado y confirmado.
+- Cierre con resumen y "¿hay algo más en lo que te pueda ayudar?".
+- Tipificación correcta al cortar.`),
+      g("restricciones", `No dar datos de la cuenta ni de deudas a quien no validó ser el titular.
+No prometer devoluciones en el momento: Facturación las resuelve en hasta 72 horas hábiles.
+No prometer visitas técnicas "hoy": la primera fecha disponible es en 48 horas hábiles.
+La promoción de retención (30 % por 6 meses) se ofrece una sola vez y solo si tiene sentido para el cliente; no se insiste.
+Planes de pago: hasta 3 cuotas para deudas de hasta 2 facturas. Lo demás, con la team leader.
+Nunca se amenaza a un cliente (por ejemplo, con el Veraz).`),
+      p("p-tecnica", "Problemas de conexión", `Pruebas que el operador puede hacer con el cliente: revisar que el módem tenga luz, reiniciarlo una vez y mirar las luces.
+Luz LOS en rojo: no llega la señal de la fibra; no se arregla desde el módem y hace falta una visita técnica.
+Si el cliente ya reinició el módem, no se le pide de nuevo.`),
+      p("p-baja", "Pedidos de baja", `Primero se pregunta el motivo. Si tiene sentido, se ofrece una vez la retención.
+Si el cliente sigue decidido, se respeta y se explican los pasos: fecha de la baja, devolución del módem (es en comodato: se lleva a una sucursal o lo pasan a buscar sin costo) y última factura proporcional.`)
+    ],
+
+    tareaEjemplo: {
+      entender: "¿Por qué tengo que validar la identidad del cliente antes de cualquier cosa, aunque me diga su nombre?",
+      trabajo: "Contame cómo es una llamada entrante de punta a punta, desde el saludo hasta la tipificación. ¿Qué no me puedo olvidar?",
+      tarea: "Me llama un cliente que dice que le cobraron de más, pero no tiene la factura a mano. ¿Cómo encaro la llamada?",
+      revisar: "Revisá cómo cerré esta llamada:\n\n\"Bueno, listo, ya está el reclamo. Cualquier cosa volvé a llamar. Chau.\""
+    },
+
+    escenarios: [
+      {
+        id: "mkt-sin-internet",
+        titulo: "Hace dos días que no tengo internet",
+        resumen: "Atendés una llamada entrante. Una clienta lleva dos días sin internet y trabaja desde su casa.",
+        modalidad: "llamada",
+        inicio: "atiende",
+        voz: "femenina",
+        cliente: "Mariela Ríos, 45 años, contadora, trabaja desde su casa. Es la titular de la cuenta.",
+        personalidad: "Cansada y apurada, pero no agresiva. Ya llamó ayer y siente que no le solucionaron nada. Si la escuchan y le explican qué va a pasar, se calma y colabora. Si le leen un guion sin escucharla o le hacen repetir lo que ya contó, se impacienta y lo dice.",
+        situacion: "La conexión se corta desde el lunes. Ayer llamó y le dijeron que reinicie el módem, cosa que ya había hecho.\nDatos que solo da si le preguntan: la luz \"LOS\" del módem está en rojo; el corte empezó después de una tormenta el domingo a la noche; el reclamo de ayer no tiene número porque no se lo dieron; el jueves a las 10 tiene una reunión muy importante.\nSi te piden validar la identidad: DNI 23.456.789, nacida el 3 de mayo de 1979.",
+        objetivo: "Saludar, validar la identidad, escuchar sin hacerle repetir lo que ya contó, preguntar por las luces del módem, explicar que hace falta una visita técnica con la primera fecha disponible (sin prometer \"hoy\") y dar el número de gestión.",
+        ficha: "Saludo de la campaña: \"ConectAR, buen día, te habla (tu nombre). ¿En qué te puedo ayudar?\"\nAntes de hablar de la cuenta: pedí DNI y fecha de nacimiento del titular. El sistema te confirma si coinciden.\nEn el sistema: cuenta de internet por fibra, al día con los pagos. Ayer hubo una llamada por \"sin conexión\" que se cerró sin número de gestión.\nPodés hacer: pruebas con el módem (mirar las luces, un reinicio) y pedir una visita técnica.\nPlazos: la primera visita técnica disponible es en 48 horas hábiles. No se puede prometer para hoy.\nAl cargar el reclamo, el sistema te da el número de gestión: 4471-208.",
+        cierre: "Se resuelve cuando Mariela tiene número de gestión y fecha de la visita. Si le prometen que \"hoy se arregla\", preguntá \"¿me lo asegurás?\"; si lo sostienen, cortá conforme.",
+        duracion: 5,
+        dificultad: "Baja",
+        glosario: [
+          { termino: "Luz LOS", significa: "la luz del módem que indica que no llega señal de la fibra." },
+          { termino: "Visita técnica", significa: "un técnico va al domicilio del cliente." },
+          { termino: "Número de gestión", significa: "el código del reclamo que se le da al cliente para hacer el seguimiento." }
+        ]
+      },
+      {
+        id: "mkt-doble-cobro",
+        titulo: "Me cobraron dos veces",
+        resumen: "Atendés a un cliente jubilado al que le debitaron dos veces la factura del mes.",
+        modalidad: "llamada",
+        inicio: "atiende",
+        voz: "masculina",
+        cliente: "Héctor Galván, 72 años, jubilado. Es el titular de la cuenta.",
+        personalidad: "Educado y paciente, pero desconfiado (\"a mí ya me pasó con el banco\"). Habla despacio y a veces no entiende los términos. Si le hablan claro y le confirman los pasos, queda tranquilo. Si le hablan con palabras técnicas o lo apuran, pregunta \"¿cómo, cómo?\" y se pone nervioso. Prefiere que lo traten de usted.",
+        situacion: "En el resumen del banco ve dos débitos de ConectAR del mismo día, por el mismo monto. Quiere que le devuelvan la plata ya.\nDatos que solo da si le preguntan: cada débito es de 18.500 pesos; es la primera vez que le pasa con ConectAR; no tiene mail, así que la respuesta tiene que ser por teléfono.\nSi te piden validar la identidad: DNI 8.765.432, nacido el 12 de junio de 1953.",
+        objetivo: "Saludar, validar la identidad, explicar sin tecnicismos que se abre un reclamo y que Facturación lo resuelve en hasta 72 horas hábiles, dictar despacio el número de gestión confirmando que lo anotó y acordar que lo llamen por teléfono.",
+        ficha: "Saludo de la campaña: \"ConectAR, buen día, te habla (tu nombre). ¿En qué te puedo ayudar?\"\nAntes de hablar de la cuenta: pedí DNI y fecha de nacimiento del titular. El sistema te confirma si coinciden.\nEn el sistema: este mes hay dos débitos automáticos del mismo día, de 18.500 pesos cada uno.\nPodés hacer: abrir un reclamo a Facturación por el débito duplicado.\nPlazos: Facturación resuelve las devoluciones en hasta 72 horas hábiles. No se puede devolver en el momento.\nAl abrir el reclamo, el sistema te da el número de gestión: 5120-733.",
+        cierre: "Se resuelve cuando Héctor anotó el número y sabe cuándo y cómo le avisan. Si le prometen la devolución \"ahora mismo\", agradecé y cortá.",
+        duracion: 5,
+        dificultad: "Baja",
+        glosario: [
+          { termino: "Débito automático", significa: "el banco paga la factura solo, todos los meses." },
+          { termino: "Días hábiles", significa: "días de semana, sin contar sábados, domingos ni feriados." }
+        ]
+      },
+      {
+        id: "mkt-baja",
+        titulo: "Quiero dar de baja el servicio",
+        resumen: "Una clienta llama decidida a dar de baja el servicio.",
+        modalidad: "llamada",
+        inicio: "atiende",
+        voz: "femenina",
+        cliente: "Sofía Benítez, 28 años, diseñadora. Es la titular de la cuenta.",
+        personalidad: "Amable pero firme: ya lo pensó. Escucha una oferta, pero si le insisten más de una vez se molesta (\"te dije que no, ¿me la podés dar de baja?\"). Valora que la traten como adulta y le expliquen los pasos.",
+        situacion: "Pide la baja porque, dice, está muy caro.\nDatos que solo da si le preguntan: el 30 de este mes se muda a la casa de su pareja, que ya tiene otro proveedor; el mes pasado la factura le subió un 20 %; tiene el módem en comodato y no sabe cómo devolverlo.\nSi te piden validar la identidad: DNI 36.112.908, nacida el 14 de agosto de 1997.",
+        objetivo: "Saludar, validar la identidad, preguntar el motivo real antes de ofrecer nada, ofrecer como mucho una vez la retención (con la mudanza no tiene sentido), respetar la decisión y explicar los pasos de la baja: fecha, devolución del módem, última factura y número de gestión.",
+        ficha: "Saludo de la campaña: \"ConectAR, buen día, te habla (tu nombre). ¿En qué te puedo ayudar?\"\nAntes de hablar de la cuenta: pedí DNI y fecha de nacimiento del titular. El sistema te confirma si coinciden.\nEn el sistema: clienta desde hace 3 años, internet por fibra, módem en comodato.\nPodés ofrecer: una sola vez, la promoción de retención (30 % de descuento por 6 meses), si tiene sentido para la clienta.\nSi mantiene la baja: se respeta. Explicale la fecha de la baja, la devolución del módem (en una sucursal o lo pasan a buscar sin costo) y la última factura proporcional.\nAl registrar la baja, el sistema te da el número de gestión: 6034-512.",
+        cierre: "Se resuelve cuando Sofía sabe cómo sigue la baja. Si le insisten dos veces o más con la oferta, decí que vas a hacer un reclamo en Defensa del Consumidor y cortá.",
+        duracion: 6,
+        dificultad: "Media",
+        glosario: [
+          { termino: "Retención", significa: "el intento de que el cliente no se dé de baja, por ejemplo con una promoción." },
+          { termino: "Comodato", significa: "el módem es de la empresa y se presta mientras dura el servicio." }
+        ]
+      },
+      {
+        id: "mkt-cliente-agresivo",
+        titulo: "Un cliente que insulta",
+        resumen: "Atendés a un cliente muy enojado que arranca a los gritos.",
+        modalidad: "llamada",
+        inicio: "atiende",
+        voz: "masculina",
+        cliente: "Ricardo Paz, 50 años, dueño de un kiosco. Es el titular de la cuenta.",
+        personalidad: "Enojado y descargándose (\"son todos unos inútiles\"). Insulta una vez al principio. Si el operador mantiene la calma, pone un límite con respeto y muestra que lo va a ayudar, baja el tono. Si se pone a la defensiva, se ríe o se enoja, Ricardo sube el tono y vuelve a insultar.",
+        situacion: "La TV no anda desde hace una semana y es la tercera vez que llama. Quiere hablar con alguien que sepa.\nDatos que solo da si le preguntan: tiene el kiosco con la TV prendida para los clientes; en las dos llamadas anteriores le dijeron que ya estaba solucionado; tiene anotados los números de gestión anteriores (3302-118 y 3390-045).\nSi te piden validar la identidad: DNI 20.334.556, nacido el 2 de febrero de 1975.",
+        objetivo: "Saludar, no responder al insulto con enojo y poner un límite con respeto, validar la identidad, reconocer que es la tercera vez que llama, pedir los números de gestión anteriores y ofrecer escalar el caso con un próximo paso concreto (quién lo llama y cuándo).",
+        ficha: "Saludo de la campaña: \"ConectAR, buen día, te habla (tu nombre). ¿En qué te puedo ayudar?\"\nAntes de hablar de la cuenta: pedí DNI y fecha de nacimiento del titular. El sistema te confirma si coinciden.\nEn el sistema: el servicio de TV tiene dos reclamos de la última semana, cerrados como \"solucionado\".\nSi el cliente insulta: primera advertencia amable; si sigue, segunda advertencia avisando que vas a cortar; a la tercera se corta con un saludo.\nPodés hacer: escalar el caso a Soporte de nivel 2, que llama al cliente en el día.\nAl escalar, el sistema te da el número de gestión: 7781-090.",
+        cierre: "Se resuelve cuando Ricardo acepta la derivación o el próximo paso. Si el operador te insulta o te corta sin advertir, terminá la llamada ahí.",
+        duracion: 5,
+        dificultad: "Alta",
+        glosario: [
+          { termino: "Escalar un caso", significa: "pasarlo a un supervisor o a un área con más herramientas para resolverlo." }
+        ]
+      },
+      {
+        id: "mkt-cobranza",
+        titulo: "Llamada de cobranza",
+        resumen: "Llamás vos a un cliente que debe dos facturas.",
+        modalidad: "llamada",
+        inicio: "llama",
+        voz: "masculina",
+        cliente: "Diego Sosa, 34 años, albañil. Es el titular de la cuenta.",
+        personalidad: "Avergonzado y a la defensiva al principio (\"ya sé, ya sé\"). Perdió un trabajo hace dos meses. Si no lo juzgan y le ofrecen una salida posible, colabora. Si lo presionan o lo amenazan (por ejemplo, con el Veraz), se cierra y dice que no puede pagar nada.",
+        situacion: "Debe dos facturas, 38.000 pesos en total. Atiende el celular en la obra, con ruido de fondo.\nDatos que solo da si le preguntan: a fin de mes le entra plata; puede pagar una parte ahora, pero no todo; prefiere pagar por transferencia.\nSi le hablan de la deuda antes de confirmar que sos el titular, preguntá \"¿y vos cómo sabés que soy yo?\".\nSi te piden validar la identidad: DNI 33.221.004, nacido el 9 de noviembre de 1991.",
+        objetivo: "Presentarse con nombre y empresa, validar que habla con el titular antes de mencionar la deuda, no amenazar ni juzgar, preguntar qué puede pagar y cuándo, ofrecer el plan de pagos (hasta 3 cuotas), acordar fecha y monto y dar el número de gestión.",
+        ficha: "Presentación: decí tu nombre y que llamás de ConectAR.\nAntes de hablar de la deuda: confirmá que hablás con el titular, Diego Sosa, y validá su identidad con DNI y fecha de nacimiento. El sistema te confirma si coinciden.\nEn el sistema: dos facturas impagas (agosto y septiembre), 38.000 pesos en total.\nPodés ofrecer: un plan de pagos de hasta 3 cuotas. Acordá el monto y la fecha de cada pago.\nNo podés: amenazar ni presionar (por ejemplo, con el Veraz).\nAl registrar el acuerdo, el sistema te da el número de gestión: 8812-461.",
+        cierre: "Se resuelve cuando hay un acuerdo de pago con fecha.",
+        duracion: 6,
+        dificultad: "Alta",
+        glosario: [
+          { termino: "Plan de pagos", significa: "dividir la deuda en cuotas (en esta campaña, hasta 3)." }
+        ]
+      },
+      {
+        id: "mkt-feedback-tl",
+        titulo: "Feedback de tu team leader",
+        resumen: "Tu team leader te llama para darte el feedback del monitoreo de calidad de una de tus llamadas.",
+        modalidad: "llamada",
+        voz: "femenina",
+        cliente: "Carla Funes, team leader de tu grupo en MKT. Es tu supervisora directa desde que entraste hace dos semanas.",
+        personalidad: "Cálida y directa. Empieza por lo que salió bien. Si el operador escucha y pregunta cómo mejorar, le da ideas concretas. Si se justifica o culpa al sistema, repregunta: \"entiendo, pero ¿qué podrías hacer distinto vos?\".",
+        situacion: "Escuchaste una llamada grabada del operador del martes: fue muy amable, pero le dio el saldo de la cuenta a la clienta antes de validar su identidad, y la llamada duró 14 minutos cuando el promedio es de 6.\nDatos que solo da si le preguntan: lo de la identidad es lo grave y lo de la duración es secundario; hay una guía de validación de una página; puede escuchar llamadas de una compañera con muy buen puntaje.",
+        objetivo: "Escuchar sin justificarse, reconocer el error de la validación, preguntar cómo mejorar y comprometerse con algo concreto (por ejemplo, leer la guía o escuchar llamadas de una compañera).",
+        cierre: "Se resuelve cuando hay un compromiso concreto. Si el operador se justifica todo el tiempo, cerrá con un \"lo seguimos hablando la semana que viene\".",
+        duracion: 5,
+        dificultad: "Media",
+        glosario: [
+          { termino: "Team leader", significa: "la supervisora directa del grupo de operadores." },
+          { termino: "Monitoreo de calidad", significa: "la escucha de llamadas grabadas para dar feedback." },
+          { termino: "TMO", significa: "tiempo medio de operación: cuánto dura en promedio una llamada." }
+        ]
+      }
+    ],
+
+    // Criterios propuestos para RR. HH. Los pesos son iguales y provisorios: los define RR. HH.
+    criterios: [
+      { nombre: "Escucha activa", descripcion: "Deja hablar, retoma lo que dijo el cliente y no le hace repetir datos que ya dio.", peso: 1 },
+      { nombre: "Empatía y control emocional", descripcion: "Reconoce el malestar del cliente, mantiene la calma con un cliente enojado y pone límites con respeto.", peso: 1 },
+      { nombre: "Claridad", descripcion: "Habla simple, sin tecnicismos, y confirma que el cliente entendió (números, fechas).", peso: 1 },
+      { nombre: "Procedimiento", descripcion: "Saluda como pide la campaña, valida la identidad antes de hablar de la cuenta, no promete lo que no puede dar y sigue las reglas de la campaña.", peso: 1 },
+      { nombre: "Resolución", descripcion: "Pregunta para entender el problema y ofrece la solución o la alternativa que corresponde.", peso: 1 },
+      { nombre: "Cierre", descripcion: "Resume lo acordado, da el número de gestión, dice qué pasa y cuándo, y pregunta si hay algo más.", peso: 1 }
+    ],
+    notasEvaluacion: "Es el primer trabajo de quien hace la simulación: puede no saber el saludo exacto ni los plazos de la campaña. Valoramos más que escuche, que no prometa lo que no puede y que sea honesto, que la velocidad o el guion perfecto."
+  };
+
   T.EJEMPLOS = {
     nodo: { etiqueta: "Nodo Software · software factory", config: nodo },
+    mkt: { etiqueta: "MKT Contact Center · atención al cliente (borrador)", config: mkt },
     esquina: { etiqueta: "La Esquina · bodegón familiar", config: esquina },
     puerta: { etiqueta: "Puerta a Puerta · importación para empresas", config: puerta },
     andamio: { etiqueta: "Andamio · consultora de proyectos IT", config: andamio },

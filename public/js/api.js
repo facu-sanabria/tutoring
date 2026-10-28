@@ -2,6 +2,12 @@
 window.T = window.T || {};
 
 T.api = (function () {
+  // El servidor responde 401 con type "sin_ingreso" cuando no hay sesión o venció.
+  // (Un 401 de otro tipo es del proveedor de IA, por ejemplo la sesión de Claude Code.)
+  let onSinSesion = null;
+  const sinIngreso = (status, type) => status === 401 && type === "sin_ingreso";
+  function avisarSinSesion() { if (onSinSesion) onSinSesion(); }
+
   async function jsonReq(url, opts = {}) {
     let res;
     try {
@@ -17,6 +23,8 @@ T.api = (function () {
       const e = new Error(msg);
       e.status = res.status;
       e.type = (cuerpo && cuerpo.error && cuerpo.error.type) || "";
+      // /api/yo es la pregunta del arranque: ahí el 401 es lo normal, no "tu sesión venció".
+      if (sinIngreso(e.status, e.type) && url !== "/api/yo") avisarSinSesion();
       throw e;
     }
     return cuerpo;
@@ -48,7 +56,9 @@ T.api = (function () {
       let msg = "", type = "";
       try { const j = await res.json(); msg = (j.error && j.error.message) || ""; type = (j.error && j.error.type) || ""; } catch (_) {}
       const err = new Error(msg || res.statusText || "Error de la API");
-      err.status = res.status; err.type = type; throw err;
+      err.status = res.status; err.type = type;
+      if (sinIngreso(err.status, err.type)) avisarSinSesion();
+      throw err;
     }
     if (!res.body) throw Object.assign(new Error("El servidor no devolvió contenido."), { status: 502 });
 
@@ -99,6 +109,7 @@ T.api = (function () {
     if (!e) return "Algo falló. Probá de nuevo.";
     if (e.name === "AbortError") return "";
     if (e.offline) return "No se pudo conectar con el servidor. ¿Sigue corriendo npm start?";
+    if (e.type === "sin_ingreso") return e.message;
     if (e.type === "missing_key") return e.message || `Falta la API key: pegala en el archivo .env (${keyVar}) y reiniciá el servidor.`;
     if (e.type === "sesion") return e.message;
     if (e.type === "limite_plan") return e.message;
@@ -121,6 +132,14 @@ T.api = (function () {
     errorCopy,
     setProvider,
     onProvider: fn => { onProviderChange = fn; },
+    onSinSesion: fn => { onSinSesion = fn; },
+    sinSesion: avisarSinSesion,
+    auth: {
+      yo: () => jsonReq("/api/yo"),
+      ingresar: (usuario, clave) => jsonReq("/api/login", { method: "POST", body: JSON.stringify({ usuario, clave }) }),
+      salir: () => jsonReq("/api/logout", { method: "POST" }),
+      cambiarClave: datos => jsonReq("/api/contrasena", { method: "POST", body: JSON.stringify(datos) })
+    },
     config: () => jsonReq("/api/config"),
     diagnostico: () => jsonReq("/api/diagnostico"),
     empresa: {

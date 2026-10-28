@@ -189,6 +189,47 @@ const PUBLIC = path.resolve(__dirname, "public");
 const DATA = path.resolve(__dirname, env("DATA_DIR") || "data");
 const REPORTS = path.join(DATA, "informes");
 fs.mkdirSync(REPORTS, { recursive: true });
+
+// ---------- usuarios y sesiones ----------
+// Los usuarios se crean con npm run usuarios (scripts/usuarios.mjs). Ver auth.js.
+const auth = require("./auth")(DATA);
+// Primer arranque (sin ningún usuario): se crean las cuentas de prueba para poder entrar con solo npm start.
+if (!auth.listar().length) auth.crearCuentasDemo();
+// Llave local: los scripts de esta compu (chequeo, probar-ia, evals) la leen de este archivo y la mandan
+// en x-llave-local. Quien puede leer data/ ya puede leer el .env, así que no abre nada nuevo.
+const LLAVE_LOCAL = crypto.randomBytes(32).toString("hex");
+try { fs.writeFileSync(path.join(DATA, "llave-local.txt"), LLAVE_LOCAL + "\n"); }
+catch (e) { console.error("  No se pudo escribir data/llave-local.txt: los scripts de chequeo no van a poder entrar.", e.message); }
+const MSG_NO_INGRESO = "Tu sesión venció o no ingresaste. Volvé a ingresar.";
+const MSG_SIN_PERMISO = "No tenés permiso para hacer esto.";
+const COOKIE_BASE = "HttpOnly; SameSite=Lax; Path=/";
+
+function cookieDe(req, nombre) {
+  for (const parte of String(req.headers.cookie || "").split(";")) {
+    const i = parte.indexOf("=");
+    if (i > 0 && parte.slice(0, i).trim() === nombre) return parte.slice(i + 1).trim();
+  }
+  return "";
+}
+function usuarioDe(req) {
+  const llave = req.headers["x-llave-local"];
+  if (typeof llave === "string" && llave.length === LLAVE_LOCAL.length && crypto.timingSafeEqual(Buffer.from(llave), Buffer.from(LLAVE_LOCAL))) {
+    return { id: "local", usuario: "local", nombre: "Script local", rol: "empresa", debeCambiar: false, local: true };
+  }
+  return auth.sesion(cookieDe(req, "sesion"));
+}
+// Responde 401/403 y devuelve false si no hay sesión o el rol no alcanza.
+function exigir(res, u, roles) {
+  if (!u) { fail(res, 401, MSG_NO_INGRESO, "sin_ingreso"); return false; }
+  if (roles && !roles.includes(u.rol)) { fail(res, 403, MSG_SIN_PERMISO); return false; }
+  return true;
+}
+// Un POST/PUT/DELETE que viene de otra página no puede usar la sesión de quien la tiene abierta.
+function mismoOrigen(req) {
+  const o = req.headers.origin;
+  if (!o) return true;
+  try { return new URL(o).host === req.headers.host; } catch (_) { return false; }
+}
 // Registro de la IA en archivo (data/logs/ia-AAAA-MM-DD.log): sirve para ver qué pasó después de una demo.
 const LOGS = path.resolve(DATA, env("LOG_DIR") || "logs");
 function registrarArchivo(linea) {
@@ -1185,6 +1226,44 @@ async function estadoIA() {
 
 // ---------- rutas ----------
 async function handleApi(req, res, url) {
+  const libre = url.pathname.startsWith("/api/chequeo/");   // solo desde esta compu, ver abajo
+  if (!libre && ["POST", "PUT", "DELETE"].includes(req.method) && !mismoOrigen(req)) return fail(res, 403, MSG_SIN_PERMISO);
+
+  if (url.pathname === "/api/login") {
+    if (req.method !== "POST") return fail(res, 405, "Método no permitido");
+    const body = await bodyObject(req, res, 4096, "");
+    if (!body) return;
+    const r = auth.ingresar(body.usuario, body.clave, req.socket.remoteAddress);
+    if (r.status === 429) { res.setHeader("retry-after", String(r.retryAfter)); return fail(res, 429, "Probaste muchas veces. Esperá un minuto y volvé a intentar."); }
+    if (!r.ok) return fail(res, 401, "Usuario o contraseña incorrectos.");
+    res.setHeader("set-cookie", `sesion=${r.token}; ${COOKIE_BASE}; Max-Age=43200${req.socket.encrypted ? "; Secure" : ""}`);
+    return json(res, 200, { nombre: r.usuario.nombre, rol: r.usuario.rol, debeCambiar: r.usuario.debeCambiar });
+  }
+
+  const yo = libre ? null : usuarioDe(req);
+  if (!libre) {
+    if (!exigir(res, yo)) return;
+    if (yo.debeCambiar && !["/api/yo", "/api/contrasena", "/api/logout"].includes(url.pathname)) return fail(res, 403, "Primero creá tu contraseña.");
+  }
+
+  if (url.pathname === "/api/yo") {
+    if (req.method !== "GET") return fail(res, 405, "Método no permitido");
+    return json(res, 200, { id: yo.id, usuario: yo.usuario, nombre: yo.nombre, rol: yo.rol, debeCambiar: yo.debeCambiar });
+  }
+  if (url.pathname === "/api/logout") {
+    if (req.method !== "POST") return fail(res, 405, "Método no permitido");
+    auth.salir(cookieDe(req, "sesion"));
+    res.setHeader("set-cookie", `sesion=; ${COOKIE_BASE}; Max-Age=0`);
+    return json(res, 200, { ok: true });
+  }
+  if (url.pathname === "/api/contrasena") {
+    if (req.method !== "POST") return fail(res, 405, "Método no permitido");
+    const body = await bodyObject(req, res, 4096, "");
+    if (!body) return;
+    const r = auth.cambiarClave(cookieDe(req, "sesion"), { actual: body.actual, nueva: body.nueva });
+    return r.ok ? json(res, 200, { ok: true }) : fail(res, r.status, r.mensaje);
+  }
+
   // Configuración pública (nunca incluye una API key)
   if (url.pathname === "/api/config") {
     if (req.method !== "GET") return fail(res, 405, "Método no permitido");
@@ -1198,6 +1277,7 @@ async function handleApi(req, res, url) {
 
   if (url.pathname === "/api/diagnostico") {
     if (req.method !== "GET") return fail(res, 405, "Método no permitido");
+    if (!exigir(res, yo, ["empresa"])) return;   // hace una consulta real a la IA
     const [principal, respaldo] = await Promise.all([probarProveedor(PRIMARY), FALLBACK ? probarProveedor(FALLBACK) : null]);
     return json(res, 200, { principal, respaldo, activo: principal.ok ? PRIMARY : respaldo && respaldo.ok ? FALLBACK : null, cache: resumenUso() });
   }
@@ -1294,6 +1374,7 @@ async function handleApi(req, res, url) {
       return json(res, 200, data);
     }
     if (req.method === "PUT") {
+      if (!exigir(res, yo, ["empresa"])) return;
       const cfg = await bodyObject(req, res, LIMITS.empresa, "Subí documentos más chicos.");
       if (!cfg) return;
       if (typeof cfg.empresa !== "string" || !cfg.empresa.trim()) return fail(res, 400, "Falta el nombre de la empresa.");
@@ -1306,20 +1387,23 @@ async function handleApi(req, res, url) {
     return fail(res, 405, "Método no permitido");
   }
 
-  // Informes de simulaciones
+  // Informes de simulaciones: la empresa ve todos; estudiante y junior, solo los suyos.
+  const loVe = r => yo.rol === "empresa" || (Boolean(r.usuarioId) && r.usuarioId === yo.id);
   if (url.pathname === "/api/informes") {
     if (req.method === "GET") {
       let files = [];
       try { files = fs.readdirSync(REPORTS).filter(f => f.endsWith(".json")); } catch (_) {}
       const list = files.map(f => {
         const r = readJSON(path.join(REPORTS, f), null);
-        return isObj(r) && r.id ? { id: r.id, candidato: r.candidato, escenario: r.escenario && r.escenario.titulo, empresa: r.empresa, fecha: r.fecha, puntaje: r.puntaje } : null;
+        return isObj(r) && r.id && loVe(r) ? { id: r.id, candidato: r.candidato, escenario: r.escenario && r.escenario.titulo, empresa: r.empresa, fecha: r.fecha, puntaje: r.puntaje } : null;
       }).filter(Boolean).sort((a, b) => String(b.fecha).localeCompare(String(a.fecha)));
       return json(res, 200, list);
     }
     if (req.method === "POST") {
       const r = await bodyObject(req, res, LIMITS.informe, "");
       if (!r) return;
+      // El nombre sale de la sesión, no de lo que manda el navegador. Los scripts locales lo traen en el pedido.
+      if (!yo.local) { r.candidato = yo.nombre; r.usuarioId = yo.id; }
       if (typeof r.candidato !== "string" || !r.candidato.trim()) return fail(res, 400, "El informe no tiene candidato.");
       if (!isObj(r.evaluacion)) return fail(res, 400, "El informe no trae la evaluación.");
       r.id = crypto.randomUUID();
@@ -1334,8 +1418,13 @@ async function handleApi(req, res, url) {
   if (m) {
     if (!safeId(m[1])) return fail(res, 400, "Identificador de informe inválido");
     const file = path.join(REPORTS, m[1] + ".json");
-    if (req.method === "GET") { const r = readJSON(file, null); return isObj(r) ? json(res, 200, r) : fail(res, 404, "El informe no existe"); }
+    if (req.method === "GET") {
+      const r = readJSON(file, null);
+      if (!isObj(r)) return fail(res, 404, "El informe no existe");
+      return loVe(r) ? json(res, 200, r) : fail(res, 403, MSG_SIN_PERMISO);
+    }
     if (req.method === "DELETE") {
+      if (!exigir(res, yo, ["empresa"])) return;
       try { fs.unlinkSync(file); } catch (e) { if (e.code !== "ENOENT") return fail(res, 500, "No se pudo eliminar el informe"); }
       return json(res, 200, { ok: true });
     }
@@ -1407,6 +1496,12 @@ server.listen(PORT, "127.0.0.1", () => {
   console.log(`  Evaluación: ${EVAL_CADENA.map(id => PROVIDERS[id].detalle).join(" → ")}${EVAL_CADENA[0] === "claude-sdk" ? ` · intento en paralelo a los ${Math.round(T_EVAL_CARRERA / 1000)}s si Claude no terminó` : ""}`);
   if (EVAL_CADENA[0] === "claude-sdk" && !PROVIDERS.anthropic.key) console.log("  (Sin ANTHROPIC_API_KEY: el intento en paralelo usa otra vez Claude Code. Con la key, usa Claude por API.)");
   console.log(`  Registro de la IA: ${LOGS}`);
+  const demo = auth.cuentasDemoActivas();
+  if (demo.length) {
+    console.log(`
+  Cuentas de prueba activas (clave ${auth.CUENTAS_DEMO[0].clave}): ${demo.map(u => u.usuario).join(", ")}`);
+    console.log(`  Antes de usar la app con gente real, desactivalas: npm run usuarios -- desactivar ${demo[0].usuario}`);
+  }
   console.log(`  Caché de prompts: ${CACHE.activo ? `activo (duración ${CACHE.ttl}). El ahorro se ve en /api/diagnostico` : "apagado (PROMPT_CACHE=off)"}`);
   for (const id of CADENA) {
     if (id !== "claude-sdk" && !PROVIDERS[id].key) console.log(`  Atención: falta ${PROVIDERS[id].keyVar} en el archivo .env`);

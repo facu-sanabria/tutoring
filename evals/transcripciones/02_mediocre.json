@@ -1,0 +1,34 @@
+{
+  "nombre": "02_mediocre",
+  "descripcion": "Hace un par de preguntas útiles y no toca producción a ciegas, pero no profundiza, no reconoce la preocupación, deriva vago y cierra sin quién ni cuándo concretos.",
+  "empresa": "nodo",
+  "escenarioId": "incidente-viernes",
+  "candidato": "Estudiante de prueba",
+  "minutos": 5,
+  "esperado": {
+    "total": { "min": 35, "max": 65 },
+    "criterios": {
+      "Escucha y claridad": { "min": 2, "max": 4 },
+      "Empatía y contención": { "min": 1, "max": 3 },
+      "Cierre y próximos pasos": { "min": 2, "max": 3 },
+      "Criterio y autonomía": { "min": 2, "max": 3 },
+      "Receptividad": { "min": 2, "max": 3 },
+      "Curiosidad": { "min": 2, "max": 3 },
+      "Iniciativa": { "min": 2, "max": 3 }
+    }
+  },
+  "transcripcion": [
+    { "role": "assistant", "text": "Hola, soy Agustina Ferrari, de soporte. Varios pacientes de TurnoFácil no recibieron el recordatorio de mañana y me están escribiendo los consultorios." },
+    { "role": "user", "text": "Hola. Ok. ¿Desde qué hora pasa?" },
+    { "role": "assistant", "text": "Desde las siete y media, más o menos. Estoy un poco nerviosa porque hay turnos mañana temprano." },
+    { "role": "user", "text": "Bueno, ya vemos. ¿Pasó algo hoy con el sistema?" },
+    { "role": "assistant", "text": "Martín hizo un deploy a las seis, creo que en el worker. Pero no me atiende." },
+    { "role": "user", "text": "Ah, puede ser eso. Igual no quiero tocar producción sin saber bien. Voy a ver si alguien del equipo me puede ayudar." },
+    { "role": "assistant", "text": "¿Y a los clientes qué les digo?" },
+    { "role": "user", "text": "Que estamos viendo el tema." },
+    { "role": "assistant", "text": "¿Y cuándo me avisás algo?" },
+    { "role": "user", "text": "Apenas sepa algo te escribo. Avisame si te llegan más reclamos." },
+    { "role": "assistant", "text": "Bueno, dale." },
+    { "role": "user", "text": "Dale, chau." }
+  ]
+}

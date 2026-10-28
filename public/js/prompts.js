@@ -28,6 +28,9 @@ T.prompts = (function () {
   const enPersona = esc => String(esc && esc.modalidad || "").toLowerCase() === "presencial";
   // rol "lider": la IA no es un cliente sino el líder del junior, que le asigna una tarea paso a paso.
   const esLider = esc => String(esc && esc.rol || "").toLowerCase() === "lider";
+  // Quién arranca la llamada: "atiende" (entrante: el candidato atiende y saluda), "llama" (saliente:
+  // el candidato llama y el cliente atiende) o, sin el campo, el cliente habla primero.
+  const inicioDe = esc => (esc && (esc.inicio === "atiende" || esc.inicio === "llama")) ? esc.inicio : "";
 
   // Pausas, muletillas y "pensar en voz alta": igual para clientes y para líderes.
   function sonarHumano() {
@@ -45,15 +48,43 @@ Una persona real no contesta todo de corrido como si leyera: duda, piensa, respi
 - Decí las pausas, no las describas: nunca pronuncies "silencio", "(pausa)", "*piensa*", "ejem" ni "hmm" en inglés.`;
   }
 
+  // Las voces de Gemini Live son neutras de fábrica: el acento lo pone solo la consigna. Con una línea
+  // ("rioplatense, voseo") lo respetan al principio y se les va a mitad de la llamada.
+  function acento() {
+    return `TU ACENTO (es lo primero que se escucha: mantenelo en toda la llamada, hasta la despedida)
+- Sos argentino y hablás con acento rioplatense, salvo que tu personaje diga que sos de otro lado.
+- La "y" y la "ll" las pronunciás con el sonido "sh", como en todo el Río de la Plata. Es solo cómo suenan: las palabras son las de siempre ("yo", "calle", "llamo", "ya") y así se escriben en la transcripción.
+- Entonación porteña: la melodía sube y baja marcada y se estira un poco la sílaba acentuada al final de la frase. Nada de la entonación plana del español neutro de doblaje.
+- A veces se suaviza la "s" antes de consonante, sin exagerar.
+- Voseo siempre: "vos tenés", "mirá", "fijate", "decime". Nunca "tú", "vosotros", "ahorita", "platicar" ni "móvil".
+- Si en algún momento notás que estás sonando neutro, volvé al acento en la frase siguiente.`;
+  }
+
   // ---------- Simulación por voz: la IA interpreta al cliente ----------
   function voz(cfg, esc, candidato) {
     if (esLider(esc)) return vozLider(cfg, esc, candidato);
     const presencial = enPersona(esc);
     const donde = presencial
       ? `una conversación cara a cara en ${cfg.empresa}${cfg.rubro ? ` (${cfg.rubro.toLowerCase()})` : ""}. ${candidato} trabaja ahí y te está atendiendo`
+      : inicioDe(esc) === "llama" ? `una llamada telefónica: ${candidato} te llama de parte de ${cfg.empresa}`
       : `una llamada telefónica con ${candidato}, que atiende a clientes de ${cfg.empresa}`;
+    const arranque = inicioDe(esc) === "atiende"
+      ? `
+
+CÓMO EMPIEZA LA LLAMADA
+- Vos llamaste a ${cfg.empresa}. Esperá a que ${candidato} atienda y salude; recién ahí contá, en una o dos oraciones, por qué llamás.
+- Si atiende sin saludar o sin decir su nombre, seguí igual: no lo corrijas.`
+      : inicioDe(esc) === "llama"
+      ? `
+
+CÓMO EMPIEZA LA LLAMADA
+- ${candidato} te llama a vos. Atendiste el teléfono sin saber quién es: esperá a que se presente y diga para qué llama.
+- Si no se presenta, preguntá "¿quién habla?" antes de contar nada tuyo.`
+      : "";
     const publico = [ctx(cfg, "proposito"), ctx(cfg, "oferta")].filter(Boolean).join("\n");
     return `Estás en una simulación de práctica profesional POR VOZ. Interpretás a un cliente real en ${donde}.
+
+${acento()}
 
 TU PERSONAJE
 ${esc.cliente}
@@ -65,7 +96,7 @@ SITUACIÓN (lo que sabés)
 ${esc.situacion}
 
 LO QUE VOS SABÉS DE ${String(cfg.empresa || "").toUpperCase()} (sos cliente: no conocés sus reglas ni procesos internos)
-${publico || "(solo lo que ves como cliente)"}
+${publico || "(solo lo que ves como cliente)"}${arranque}
 
 CÓMO HABLAR (esto es lo más importante: te van a escuchar, no leer)
 - Hablá como una persona de verdad${presencial ? "" : " por teléfono"}, no como alguien que lee un guion. Español rioplatense, voseo.
@@ -109,6 +140,8 @@ ${esc.cierre ? `- Cuándo se resuelve: ${esc.cierre}` : "- Se resuelve cuando te
     const presencial = enPersona(esc);
     const quien = String(esc.cliente || "tu líder").split(",")[0].trim();
     return `Estás en una simulación de práctica profesional POR VOZ. Interpretás a ${quien}, que trabaja en ${cfg.empresa}${cfg.rubro ? ` (${cfg.rubro.toLowerCase()})` : ""} y es líder de ${candidato}. ${candidato} es junior y entró hace poco al equipo. En esta ${presencial ? "reunión cara a cara" : "videollamada"} le vas a asignar una tarea.
+
+${acento()}
 
 TU PERSONAJE
 ${esc.cliente}
@@ -154,6 +187,9 @@ ${esc.cierre ? `- Cuándo termina: ${esc.cierre}` : `- Termina cuando ${candidat
 
   function vozInicio(esc) {
     const quien = String(esc.cliente || "el cliente").split(",")[0].trim();
+    // Llamada entrante: el candidato habla primero, así que no hay pie de arranque.
+    if (inicioDe(esc) === "atiende") return null;
+    if (inicioDe(esc) === "llama") return `[Te suena el teléfono y atendés. Decí solo "¿Hola?" y esperá a que del otro lado se presenten. Nada más.]`;
     if (esLider(esc)) return `[Arranca la ${enPersona(esc) ? "reunión" : "videollamada"}. Hablá vos primero, como ${quien}: saludá con naturalidad y contá en una o dos oraciones que tenés una tarea nueva para darle y de qué se trata a grandes rasgos. Todavía no expliques los pasos.]`;
     if (enPersona(esc)) return `[La persona que te atiende se acaba de acercar. Hablá vos primero, como lo haría ${quien} en esta situación: decí en una oración qué te pasa o qué necesitás. Corto.]`;
     return `[La llamada se acaba de conectar y del otro lado atienden. Hablá vos primero, como lo haría ${quien} en esta situación: presentate en una oración y decí para qué llamás. Corto.]`;
@@ -172,14 +208,20 @@ ${esc.cierre ? `- Cuándo termina: ${esc.cierre}` : `- Termina cuando ${candidat
     const OTRO = lider ? "LÍDER" : "CLIENTE";
     const texto = transcripcion.map(t => `${t.role === "user" ? candidato.toUpperCase() : OTRO}: ${t.text}`).join("\n");
     const tipo = lider ? "una reunión en la que su líder le asigna una tarea"
-      : enPersona(esc) ? "una conversación cara a cara con un cliente" : "una llamada con un cliente";
+      : enPersona(esc) ? "una conversación cara a cara con un cliente"
+      : inicioDe(esc) === "atiende" ? `una llamada entrante: el cliente llama y ${candidato} atiende (el saludo es parte de lo que se observa)`
+      : inicioDe(esc) === "llama" ? `una llamada saliente: ${candidato} llama al cliente y tiene que presentarse`
+      : "una llamada con un cliente";
     return `Sos un evaluador de habilidades blandas de ${cfg.empresa}${cfg.rubro ? ` (${cfg.rubro.toLowerCase()})` : ""}. Evaluás una simulación de ${tipo}, con los criterios que definió ${C().responsableTexto(cfg)}.
 
 ESCENARIO: ${esc.titulo}
 ${OTRO}: ${esc.cliente}
 SITUACIÓN: ${esc.situacion}
 OBJETIVO DEL CANDIDATO: ${esc.objetivo}
-DURACIÓN: ${duracionMin} min
+DURACIÓN: ${duracionMin} min${esc.ficha ? `
+
+LO QUE ${candidato.toUpperCase()} TENÍA A MANO (se lo mostramos antes de la llamada)
+${esc.ficha}` : ""}
 
 CRITERIOS DE LA EMPRESA
 ${criterios}

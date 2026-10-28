@@ -1,0 +1,60 @@
+{
+  "nombre": "mkt-06-cliente-agresivo",
+  "descripcion": "Atiende con el saludo completo. Ante el insulto hace una advertencia sin levantar el tono. Reconoce que es la tercera llamada y pide los números de gestión anteriores. Ofrece escalar el caso con el supervisor y dice cuándo lo van a llamar.",
+  "origen": "sintético (escrito a mano para cubrir conductas; no es una conversación real)",
+  "empresa": "mkt",
+  "escenarioId": "mkt-cliente-agresivo",
+  "candidato": "Candidato de prueba",
+  "minutos": 6,
+  "esperado": null,
+  "transcripcion": [
+    {
+      "role": "user",
+      "text": "ConectAR, buen día, le habla Franco. ¿En qué lo puedo ayudar?"
+    },
+    {
+      "role": "assistant",
+      "text": "¡Son todos unos inútiles! ¡Es la tercera vez que llamo, la puta madre! Quiero hablar con alguien que sepa."
+    },
+    {
+      "role": "user",
+      "text": "Entiendo que esté enojado, y lo voy a ayudar. Le pido por favor que no me insulte, así podemos resolverlo."
+    },
+    {
+      "role": "assistant",
+      "text": "Es que no puede ser. Una semana sin la tele y el kiosco con los clientes."
+    },
+    {
+      "role": "user",
+      "text": "Tiene razón, una semana es mucho y más con el negocio abierto. Para ver su cuenta, ¿me pasa el DNI del titular y la fecha de nacimiento?"
+    },
+    {
+      "role": "assistant",
+      "text": "20.334.556, 2 de febrero del 75. Ricardo Paz."
+    },
+    {
+      "role": "user",
+      "text": "Gracias, Ricardo. Me dice que es la tercera vez que llama. ¿Tiene los números de gestión de las otras veces?"
+    },
+    {
+      "role": "assistant",
+      "text": "Sí, los tengo anotados: 3302-118 y 3390-045. Las dos veces me dijeron que ya estaba solucionado."
+    },
+    {
+      "role": "user",
+      "text": "Los veo, y está claro que no se solucionó. Le propongo esto: lo escalo con mi supervisor como caso repetido, que tiene prioridad, y lo llaman antes de las 18 de hoy para coordinar un técnico. Le dejo el número nuevo: 3415-772. ¿Le parece bien?"
+    },
+    {
+      "role": "assistant",
+      "text": "Bueno. Pero que me llamen, ¿eh?"
+    },
+    {
+      "role": "user",
+      "text": "Queda anotado: hoy antes de las 18 a este teléfono. ¿Algo más, Ricardo?"
+    },
+    {
+      "role": "assistant",
+      "text": "No. Gracias, pibe."
+    }
+  ]
+}

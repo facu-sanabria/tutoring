@@ -13,15 +13,19 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { startFakeLLM } from "./fake-llm.mjs";
+import { createRequire } from "node:module";
+import { CUENTAS_DEMO, crearCuentasDemo } from "../scripts/usuarios.mjs";
 
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const PUERTO = String(process.env.PORT || 3200);
 const fake = await startFakeLLM();
 const dataDir = process.env.DATA_DIR || fs.mkdtempSync(path.join(os.tmpdir(), "tutoring-demo-"));
 fs.mkdirSync(path.join(dataDir, "informes"), { recursive: true });
+crearCuentasDemo(createRequire(import.meta.url)("../auth.js")(dataDir));
 
 console.log("  IA falsa escuchando en el puerto", fake.port);
 console.log("  Datos de esta corrida:", dataDir);
+console.log("  Cuentas (usuario / contraseña):", CUENTAS_DEMO.map(c => `${c.usuario} / ${c.clave}`).join(" · "));
 
 const proc = spawn(process.execPath, [path.join(RAIZ, "server.js")], {
   cwd: RAIZ,
