@@ -129,7 +129,11 @@ Cada consulta a la IA deja una línea en la terminal y en `data/logs/ia-AAAA-MM-
 ## Estructura
 
 ```
-server.js               servidor (sirve la app, reenvía al proveedor de IA, guarda datos)
+backend/server.js       arranque del servidor (sirve la app, reenvía al proveedor de IA, guarda datos)
+backend/src/routes.js   orden de chequeos de la API (origen, sesión, rutas de cada módulo)
+backend/src/config/     .env, rutas de carpetas y límites
+backend/src/shared/     lo común: cadena de IA (llm/), HTTP (http/), voz (voz/), utilidades
+backend/src/modules/    auth, ia, empresa, simulaciones y mentor; cada uno con routes/controller/service/repository
 .env                    API key y configuración
 data/                   configuración de la empresa e informes (se crean solos)
 public/index.html

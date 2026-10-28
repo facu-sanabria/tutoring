@@ -25,13 +25,13 @@ No hay build ni linter. El frontend es JS plano servido tal cual desde `public/`
 
 ## Arquitectura
 
-**Servidor (`server.js`, un solo archivo, sin framework).** Sirve `public/`, guarda la configuración y los informes como JSON en `data/` (o en `DATA_DIR`) y hace de proxy hacia los proveedores de IA por `POST /api/messages`. Las keys nunca salen del servidor. `sanitizePayload` decide qué campos del navegador pasan: el navegador manda `purpose` (`chat` | `voice` | `eval`) y es el servidor el que elige proveedor y modelo (`PROVIDERS[id].models[purpose]`). Las respuestas siempre se reemiten al navegador como SSE con el formato de eventos de Claude, sin importar el proveedor (`crearSSE`).
+**Servidor (`backend/`, sin framework, capas por módulo).** `backend/server.js` arranca; `backend/src/routes.js` fija el orden de chequeos de la API (origen → chequeo local → ingreso → sesión → contraseña pendiente → rutas). Cada módulo de `backend/src/modules/` (`auth`, `ia`, `empresa`, `simulaciones`, `mentor`) tiene sus capas routes → controller → service → repository y no importa de otro módulo; lo común (cadena de IA, HTTP, voz, utilidades) está en `backend/src/shared/`, y `.env`/`DATA_DIR`/`public/` se resuelven desde la raíz del repo (`backend/src/config/`). Sirve `public/`, guarda la configuración y los informes como JSON en `data/` (o en `DATA_DIR`) y hace de proxy hacia los proveedores de IA por `POST /api/messages`. Las keys nunca salen del servidor. `sanitizePayload` decide qué campos del navegador pasan: el navegador manda `purpose` (`chat` | `voice` | `eval`) y es el servidor el que elige proveedor y modelo (`PROVIDERS[id].models[purpose]`). Las respuestas siempre se reemiten al navegador como SSE con el formato de eventos de Claude, sin importar el proveedor (`crearSSE`).
 
-**Usuarios y sesiones (`auth.js`).** Sin sesión no se puede usar nada: toda `/api/*` responde 401 (`type: "sin_ingreso"`), salvo `/api/login` y `/api/chequeo/*`. Los archivos estáticos se sirven igual. `auth.js` guarda todo en la carpeta de datos:
+**Usuarios y sesiones (`backend/src/modules/auth/`).** Sin sesión no se puede usar nada: toda `/api/*` responde 401 (`type: "sin_ingreso"`), salvo `/api/login` y `/api/chequeo/*`. Los archivos estáticos se sirven igual. `auth.service.js` guarda todo en la carpeta de datos:
 - `usuarios.json`: contraseñas con `scrypt` y sal.
 - `sesiones.json`: la clave es `sha256(token)` y dura 12 horas.
 
-El token viaja en la cookie `sesion` (`HttpOnly`, `SameSite=Lax`). Si el servidor arranca sin ningún usuario, crea las cuentas de prueba (`CUENTAS_DEMO` en `auth.js`: `candidato-demo`, `junior-demo` y `empresa-demo`, clave `1234`) y, mientras estén activas, lo avisa en la consola. Las cuentas reales se crean por consola (`scripts/usuarios.mjs`) con un código inicial `XXX-XXX-XXX` y `debeCambiar`. Hasta crear su contraseña, esa persona solo puede usar `/api/yo`, `/api/contrasena` y `/api/logout`.
+El token viaja en la cookie `sesion` (`HttpOnly`, `SameSite=Lax`). Si el servidor arranca sin ningún usuario, crea las cuentas de prueba (`CUENTAS_DEMO` en `auth.service.js`: `candidato-demo`, `junior-demo` y `empresa-demo`, clave `1234`) y, mientras estén activas, lo avisa en la consola. Las cuentas reales se crean por consola (`scripts/usuarios.mjs`) con un código inicial `XXX-XXX-XXX` y `debeCambiar`. Hasta crear su contraseña, esa persona solo puede usar `/api/yo`, `/api/contrasena` y `/api/logout`.
 
 Otras reglas del servidor:
 - **Intentos de ingreso:** 5 fallos por usuario y 30 por IP en 60 segundos, después responde 429. En un aula todos salen por la misma IP.
@@ -62,7 +62,7 @@ Otras reglas del servidor:
 
 ## Tests
 
-- Ningún test usa la API real. `test/helpers.mjs` (`startApp`) arranca `server.js` en un proceso aparte, con `DATA_DIR` temporal y las URLs de los proveedores apuntando a `test/fake-llm.mjs`.
+- Ningún test usa la API real. `test/helpers.mjs` (`startApp`) arranca `backend/server.js` en un proceso aparte, con `DATA_DIR` temporal y las URLs de los proveedores apuntando a `test/fake-llm.mjs`.
 - El Agent SDK se reemplaza con `CLAUDE_SDK_MODULE` (por ejemplo, `test/fake-sdk-*.mjs`).
 - `startApp` siembra usuarios (`estudiante1`, `estudiante2`, `junior1`, `empresa1`, con clave `clave-de-prueba`, y `nuevo1`, que entra con `app.codigoNuevo`) y entra como `empresa1`. `pedir()` y `pedirMensajes()` mandan esa cookie salvo `{ cookie: null }` u otra. En Playwright se usa `ingresarEn(page, base, usuario)` y `salirEn(page)`.
 - Cuando agregues una variable de entorno que lea el servidor, neutralizala en `startApp` para que no se filtre el `.env` real.
