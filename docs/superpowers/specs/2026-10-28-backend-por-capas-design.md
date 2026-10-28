@@ -141,6 +141,26 @@ Separar un servicio después = copiar `backend/server.js`, `src/app.js`, `config
 - `simulaciones` usa subcarpetas `controllers/ services/ repositories/` porque tiene dos recursos; `empresa` e `ia` tienen un archivo por capa.
 - Sin router externo: uno chico propio en `shared/http/router.js`.
 
+## Actualización: base = PR #2 (login y roles)
+
+La branch sale del PR #2 (`pr/demo-mkt`, que apunta a `cambios-demo-2026-10-15`), no de `master`: ese PR reescribe gran parte de `server.js` y refactorizar `master` generaría conflictos inmanejables. El PR a `master` se manda cuando el PR #2 y `cambios-demo` estén en `master`.
+
+**Solo cambios estructurales**: mover y partir código existente. No se agrega funcionalidad, ni tests nuevos, ni se cambia lógica. El router reemplaza la cadena de `if` de `handleApi` respetando el mismo orden de chequeos.
+
+Lo que trae el PR #2 y dónde va:
+
+- `auth.js` → `backend/src/modules/auth/auth.service.js` (se mueve tal cual; lo usan `scripts/usuarios.mjs` y los tests).
+- Sesión (`LLAVE_LOCAL`, `usuarioDe`, cuentas demo al primer arranque) → `modules/auth/sesion.js`. Rutas `/api/login`, `/api/yo`, `/api/logout`, `/api/contrasena` → `modules/auth/auth.{routes,controller}.js`.
+- `cookieDe`, `mismoOrigen`, `exigir` y los mensajes 401/403 son genéricos → `shared/http/`. Los módulos reciben el usuario ya resuelto (`ctx.yo`) y no importan `auth`: así ningún módulo depende de otro.
+- El orden de `handleApi` lo arma `backend/src/routes.js`: chequeo de origen → `/api/chequeo/*` (sin sesión, solo localhost) → `/api/login` → sesión obligatoria y "primero creá tu contraseña" → rutas de los módulos.
+- `/api/chequeo/*` → `modules/ia/chequeo.controller.js` (mantiene su propio despacho: método equivocado da 404, como hoy).
+- Evaluación en carrera (`responderEval`, `carreraEval`) → `shared/llm/evaluacion.js`; `intentar`, `conReintentos`, `problemaDe` → `shared/llm/intentos.js`; `responder` → `shared/llm/cadena.js`.
+- Registro en archivo (`registrarArchivo`, `logLinea`) → `shared/utils/registro.js`; `logIA`, `pista`, `textoTokens` → `shared/llm/log.js`.
+- Varias keys de Gemini Live (`LIVE_KEYS`, `tokenGeminiLive`, pausas) → `shared/voz/gemini-live.js`.
+- `test/chequeo.mjs`, `evals/puente.mjs` y `scripts/usuarios.mjs`: solo cambian rutas.
+
+Base medida antes del refactor: `npm test` 152/153 (falla `/..%5c.env` → 404 en vez de 403: test pensado para Windows), `npm run test:e2e` 37/38 (falla por timeout "interrumpir al cliente lo corta"). El refactor tiene que dar exactamente lo mismo.
+
 ## Lo que queda a criterio de quien lo implemente
 
 Nombres exactos de funciones internas, cómo se parten los archivos de `shared/llm` si alguno queda muy grande o muy chico, y el orden de los commits (idealmente uno por módulo, con los tests pasando en cada uno).
