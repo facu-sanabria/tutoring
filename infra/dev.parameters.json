@@ -1,0 +1,5 @@
+[
+  { "ParameterKey": "VpcId", "ParameterValue": "vpc-06d7aa09ca0ad7f73" },
+  { "ParameterKey": "SubnetIds", "ParameterValue": "subnet-02b302a0eba599dd9,subnet-048d5b75d229c7327" },
+  { "ParameterKey": "ImageTag", "ParameterValue": "dev-e63dca1-202611051505" }
+]

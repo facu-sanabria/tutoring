@@ -20,6 +20,8 @@ const { handleApi } = require("./src/routes");
 const PORT_ENV = env("PORT");
 // PORT=0 le pide al sistema un puerto libre (lo usan las pruebas).
 const PORT = /^[0-9]+$/.test(PORT_ENV) ? Number(PORT_ENV) : 3000;
+// En un contenedor va HOST=0.0.0.0. Por defecto solo se entra desde esta compu.
+const HOST = env("HOST") || "127.0.0.1";
 
 const server = http.createServer(crearApp(handleApi));
 
@@ -43,7 +45,14 @@ const descProv = id => {
   return `${p.detalle} (${id}) · chat=${p.models.chat} · voz=${p.models.voice} · evaluación=${p.models.eval}`;
 };
 
-server.listen(PORT, "127.0.0.1", () => {
+// ECS manda SIGTERM al reemplazar una tarea: se dejan de aceptar pedidos y se termina.
+process.on("SIGTERM", () => {
+  server.close(() => process.exit(0));
+  server.closeIdleConnections();
+  setTimeout(() => process.exit(0), 5000).unref();
+});
+
+server.listen(PORT, HOST, () => {
   console.log(`\n  Tutoring corriendo en  http://localhost:${server.address().port}\n`);
   console.log(`  IA principal: ${descProv(PRIMARY)}`);
   console.log(`  IA de respaldo: ${FALLBACK ? descProv(FALLBACK) : "ninguna (LLM_FALLBACK vacío)"}`);

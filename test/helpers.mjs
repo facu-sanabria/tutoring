@@ -16,7 +16,8 @@ const crearAuth = require("../backend/src/modules/auth/auth.service.js");
 const RAIZ = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 
 // sinUsuarios: arranca con la carpeta de datos vacía (el servidor crea las cuentas de prueba) y entra como empresa-demo.
-export async function startApp({ provider = "gemini", key = "clave-de-prueba", env = {}, sinUsuarios = false } = {}) {
+// sinIngreso: no inicia sesión al arrancar (para cuando no hay con qué cuenta entrar).
+export async function startApp({ provider = "gemini", key = "clave-de-prueba", env = {}, sinUsuarios = false, sinIngreso = false } = {}) {
   const fake = await startFakeLLM();
   const dataDir = fs.mkdtempSync(path.join(os.tmpdir(), "tutoring-test-"));
   fs.mkdirSync(path.join(dataDir, "informes"), { recursive: true });
@@ -81,11 +82,11 @@ export async function startApp({ provider = "gemini", key = "clave-de-prueba", e
     return c;
   };
   let cookie;
-  try { cookie = sinUsuarios ? await ingresar("empresa-demo", "1234") : await ingresar("empresa1"); }
+  try { if (!sinIngreso) cookie = sinUsuarios ? await ingresar("empresa-demo", "1234") : await ingresar("empresa1"); }
   catch (e) { proc.kill(); await fake.close(); throw e; }
   COOKIES.set(base, cookie);
   return {
-    base, fake, dataDir, cookie, ingresar, codigoNuevo,
+    base, fake, dataDir, cookie, ingresar, codigoNuevo, proc,
     log: () => salida,
     async stop() {
       COOKIES.delete(base);

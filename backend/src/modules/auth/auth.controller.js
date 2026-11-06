@@ -1,6 +1,7 @@
 const { json, fail } = require("../../shared/http/respuesta");
 const { bodyObject } = require("../../shared/http/body");
 const { cookieDe } = require("../../shared/http/cookies");
+const { ipDe, esHttps } = require("../../shared/http/proxy");
 const { auth } = require("./sesion");
 
 const COOKIE_BASE = "HttpOnly; SameSite=Lax; Path=/";
@@ -8,10 +9,10 @@ const COOKIE_BASE = "HttpOnly; SameSite=Lax; Path=/";
 async function ingresar(req, res) {
   const body = await bodyObject(req, res, 4096, "");
   if (!body) return;
-  const r = auth.ingresar(body.usuario, body.clave, req.socket.remoteAddress);
+  const r = auth.ingresar(body.usuario, body.clave, ipDe(req));
   if (r.status === 429) { res.setHeader("retry-after", String(r.retryAfter)); return fail(res, 429, "Probaste muchas veces. Esperá un minuto y volvé a intentar."); }
   if (!r.ok) return fail(res, 401, "Usuario o contraseña incorrectos.");
-  res.setHeader("set-cookie", `sesion=${r.token}; ${COOKIE_BASE}; Max-Age=43200${req.socket.encrypted ? "; Secure" : ""}`);
+  res.setHeader("set-cookie", `sesion=${r.token}; ${COOKIE_BASE}; Max-Age=43200${esHttps(req) ? "; Secure" : ""}`);
   return json(res, 200, { nombre: r.usuario.nombre, rol: r.usuario.rol, debeCambiar: r.usuario.debeCambiar });
 }
 

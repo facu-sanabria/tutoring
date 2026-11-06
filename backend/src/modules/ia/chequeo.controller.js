@@ -2,6 +2,7 @@ const { json, fail } = require("../../shared/http/respuesta");
 const { bodyObject } = require("../../shared/http/body");
 const { LIMITS } = require("../../config/limits");
 const { LOGS } = require("../../config/paths");
+const { env } = require("../../config/env");
 const { IDS, normProv, PROVIDERS, PRIMARY, FALLBACK, CADENA, EVAL_CADENA, LIVE_KEYS, T_EVAL_CARRERA } = require("../../shared/llm/providers.config");
 const { verificarSesionClaude, SDK_STATE } = require("../../shared/llm/providers/claude-sdk");
 const { problemaDe, intentar, pedidoEval } = require("../../shared/llm/intentos");
@@ -14,7 +15,8 @@ const { VOICE } = require("../../shared/voz/voice.config");
 // No pide sesión y despacha por su cuenta (un método equivocado da 404, no 405).
 async function chequeo(req, res, url) {
   const ip = String(req.socket.remoteAddress || "");
-  if (!/^(127\.|::1$|::ffff:127\.)/.test(ip)) return fail(res, 403, "Solo desde esta compu.");
+  // Con TRUST_PROXY hay un proxy adelante: con el túnel, el tráfico de internet también llega desde 127.0.0.1.
+  if (env("TRUST_PROXY") || !/^(127\.|::1$|::ffff:127\.)/.test(ip)) return fail(res, 403, "Solo desde esta compu.");
   if (url.pathname === "/api/chequeo/estado" && req.method === "GET") {
     if (CADENA.includes("claude-sdk") || EVAL_CADENA.includes("claude-sdk")) await verificarSesionClaude();
     return json(res, 200, {

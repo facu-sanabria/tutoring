@@ -3,11 +3,13 @@ const fs = require("fs");
 const path = require("path");
 const crypto = require("crypto");
 const { DATA } = require("../../config/paths");
+const { env } = require("../../config/env");
 const { cookieDe } = require("../../shared/http/cookies");
 // Los usuarios se crean con npm run usuarios (scripts/usuarios.mjs). Ver auth.service.js.
 const auth = require("./auth.service")(DATA);
 // Primer arranque (sin ningún usuario): se crean las cuentas de prueba para poder entrar con solo npm start.
-if (!auth.listar().length) auth.crearCuentasDemo();
+// En un servidor público va CUENTAS_DEMO=off: su clave es conocida.
+if (!auth.listar().length && env("CUENTAS_DEMO") !== "off") auth.crearCuentasDemo();
 // Llave local: los scripts de esta compu (chequeo, probar-ia, evals) la leen de este archivo y la mandan
 // en x-llave-local. Quien puede leer data/ ya puede leer el .env, así que no abre nada nuevo.
 const LLAVE_LOCAL = crypto.randomBytes(32).toString("hex");

@@ -1,0 +1,214 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: Ambiente de desarrollo de Tutoring. Una tarea Fargate que se publica por Cloudflare Tunnel, sin puertos de entrada.
+
+Metadata:
+  AWSToolsMetrics:
+    AWSAgentToolkit: aws-cloudformation@3
+
+# Valores que cambian entre despliegues. Los actuales están en dev.parameters.json.
+Parameters:
+  VpcId:
+    Type: AWS::EC2::VPC::Id
+    Description: VPC donde corre todo (la red por defecto del proyecto).
+  SubnetIds:
+    Type: List<AWS::EC2::Subnet::Id>
+    Description: Subredes publicas donde puede arrancar la tarea.
+  ImageTag:
+    Type: String
+    Description: Version de la imagen en ECR que se despliega.
+    AllowedPattern: "^[a-zA-Z0-9._-]+$"
+  GeminiKeyParameter:
+    Type: String
+    Description: Nombre del parametro SecureString de SSM con la key. El valor nunca pasa por este archivo.
+    Default: /tutoring/dev/gemini-api-key
+    AllowedPattern: "^/[a-zA-Z0-9/_.-]+$"
+  TunnelTokenParameter:
+    Type: String
+    Description: Nombre del parametro SecureString de SSM con el token del tunel de Cloudflare.
+    Default: /tutoring/dev/cloudflare-tunnel-token
+    AllowedPattern: "^/[a-zA-Z0-9/_.-]+$"
+  DesiredCount:
+    Type: Number
+    Description: Tareas corriendo. 1 = app prendida. 0 = apagada (deja de cobrar Fargate y la IP publica).
+    Default: 1
+    AllowedValues: [0, 1]
+
+Resources:
+  # ---------- Logs ----------
+  # Lo que la app imprime en consola termina acá.
+  LogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      RetentionInDays: 14
+
+  # ---------- Permisos ----------
+  # Rol de ejecución: lo usa ECS, antes de arrancar la app, para bajar la imagen,
+  # escribir logs y leer los secretos. La app no recibe estos permisos.
+  ExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:*
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy
+      Policies:
+        - PolicyName: leer-secretos
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action: ssm:GetParameters
+                Resource:
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GeminiKeyParameter}
+                  - !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TunnelTokenParameter}
+
+  # Rol de tarea: los permisos de la app ya corriendo. Hoy solo abre la consola de
+  # ECS Exec, que hace falta para crear usuarios con npm run usuarios.
+  TaskRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: ecs-tasks.amazonaws.com
+            Action: sts:AssumeRole
+            Condition:
+              StringEquals:
+                aws:SourceAccount: !Ref AWS::AccountId
+              ArnLike:
+                aws:SourceArn: !Sub arn:${AWS::Partition}:ecs:${AWS::Region}:${AWS::AccountId}:*
+      Policies:
+        - PolicyName: ecs-exec
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Effect: Allow
+                Action:
+                  - ssmmessages:CreateControlChannel
+                  - ssmmessages:CreateDataChannel
+                  - ssmmessages:OpenControlChannel
+                  - ssmmessages:OpenDataChannel
+                Resource: "*"
+
+  # ---------- Red ----------
+  # Firewall de la tarea: sin reglas de entrada, nadie puede conectarse desde internet.
+  # La salida queda abierta: cloudflared llama a Cloudflare y la app llama a Gemini.
+  # Por eso TRUST_PROXY=cloudflare es seguro acá: no hay forma de saltearse el túnel.
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupDescription: Sin entrada desde internet. Solo trafico saliente.
+      VpcId: !Ref VpcId
+
+  # ---------- Contenedor ----------
+  Cluster:
+    Type: AWS::ECS::Cluster
+    Properties:
+      ClusterSettings:
+        - Name: containerInsights
+          Value: disabled
+
+  # La receta de la tarea: qué imagen corre, con cuánta CPU y memoria, y con qué configuración.
+  TaskDefinition:
+    Type: AWS::ECS::TaskDefinition
+    Properties:
+      Family: !Sub ${AWS::StackName}-app
+      RequiresCompatibilities: [FARGATE]
+      NetworkMode: awsvpc
+      Cpu: "512"
+      Memory: "1024"
+      RuntimePlatform:
+        OperatingSystemFamily: LINUX
+        CpuArchitecture: X86_64
+      ExecutionRoleArn: !GetAtt ExecutionRole.Arn
+      TaskRoleArn: !GetAtt TaskRole.Arn
+      ContainerDefinitions:
+        - Name: app
+          Image: !Sub ${AWS::AccountId}.dkr.ecr.${AWS::Region}.${AWS::URLSuffix}/tutoring:${ImageTag}
+          Essential: true
+          StopTimeout: 10
+          # ECS ignora el HEALTHCHECK del Dockerfile: sin esto no sabría si la app responde.
+          HealthCheck:
+            Command:
+              - CMD
+              - node
+              - -e
+              - fetch('http://127.0.0.1:3000/health').then(r=>process.exit(r.ok?0:1),()=>process.exit(1))
+            Interval: 30
+            Timeout: 5
+            Retries: 3
+            StartPeriod: 15
+          Environment:
+            - { Name: LLM_PROVIDER, Value: gemini }
+            - { Name: VOICE_PROVIDER, Value: gemini-live }
+            - { Name: TRUST_PROXY, Value: cloudflare }
+          Secrets:
+            - Name: GEMINI_API_KEY
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${GeminiKeyParameter}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: app
+        # Conecta hacia Cloudflare y le pasa los pedidos a la app por localhost:3000.
+        # Arranca recién cuando la app está sana. El destino se configura en el panel de Cloudflare.
+        - Name: cloudflared
+          Image: cloudflare/cloudflared:2026.10.7
+          Essential: true
+          Command: [tunnel, --no-autoupdate, run]
+          DependsOn:
+            - ContainerName: app
+              Condition: HEALTHY
+          Secrets:
+            - Name: TUNNEL_TOKEN
+              ValueFrom: !Sub arn:${AWS::Partition}:ssm:${AWS::Region}:${AWS::AccountId}:parameter${TunnelTokenParameter}
+          LogConfiguration:
+            LogDriver: awslogs
+            Options:
+              awslogs-group: !Ref LogGroup
+              awslogs-region: !Ref AWS::Region
+              awslogs-stream-prefix: cloudflared
+
+  # Mantiene DesiredCount tareas vivas: si una muere, levanta otra.
+  Service:
+    Type: AWS::ECS::Service
+    Properties:
+      Cluster: !Ref Cluster
+      TaskDefinition: !Ref TaskDefinition
+      LaunchType: FARGATE
+      DesiredCount: !Ref DesiredCount
+      EnableExecuteCommand: true
+      DeploymentConfiguration:
+        MinimumHealthyPercent: 100
+        MaximumPercent: 200
+        # Si la versión nueva no arranca, vuelve sola a la anterior.
+        DeploymentCircuitBreaker:
+          Enable: true
+          Rollback: true
+      NetworkConfiguration:
+        AwsvpcConfiguration:
+          AssignPublicIp: ENABLED
+          Subnets: !Ref SubnetIds
+          SecurityGroups:
+            - !Ref TaskSecurityGroup
+
+Outputs:
+  ClusterName:
+    Value: !Ref Cluster
+  ServiceName:
+    Value: !GetAtt Service.Name
+  LogGroupName:
+    Value: !Ref LogGroup

@@ -8,6 +8,11 @@ function crearApp(handleApi) {
     let url;
     try { url = new URL(req.url, "http://localhost"); }
     catch (_) { res.writeHead(400); return res.end("Pedido inválido"); }
+    // Chequeo de salud del balanceador: no pide sesión ni toca los datos.
+    if (url.pathname === "/health") {
+      res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
+      return res.end('{"ok":true}');
+    }
     if (url.pathname.startsWith("/api/")) {
       handleApi(req, res, url).catch(e => {
         console.error("  Error en", url.pathname + ":", sinSecretos((e && e.message) || e));

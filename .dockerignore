@@ -1,0 +1,17 @@
+# Secretos y datos locales: nunca entran a la imagen.
+.env
+.env.*
+data
+.claude
+.playwright-mcp
+
+node_modules
+.git
+test
+docs
+evals
+presentacion
+vistas-mentor
+*.md
+Dockerfile
+.dockerignore

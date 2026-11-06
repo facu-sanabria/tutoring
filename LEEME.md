@@ -39,7 +39,7 @@ npm run usuarios -- demo                  # cuentas de prueba candidato-demo, ju
 
 `crear` y `resetear` imprimen un **código inicial** (por ejemplo, `K7M-3QX-9TP`). La primera vez que la persona entra con ese código, la app le pide crear su contraseña (al menos 8 caracteres). Después la puede cambiar tocando su tarjeta, abajo a la izquierda. Ahí también está "Salir".
 
-- **Para probar:** la primera vez que corrés `npm start` sin ningún usuario, el servidor crea `candidato-demo`, `junior-demo` y `empresa-demo`, todas con la clave `1234`, y las muestra en la consola. Desactivalas antes de usar la app con gente real.
+- **Para probar:** la primera vez que corrés `npm start` sin ningún usuario, el servidor crea `candidato-demo`, `junior-demo` y `empresa-demo`, todas con la clave `1234`, y las muestra en la consola. Desactivalas antes de usar la app con gente real. En un servidor público usá `CUENTAS_DEMO=off`, así no se crean nunca.
 - La sesión dura 12 horas. Cambiar la contraseña cierra las otras sesiones de esa persona.
 - Después de 5 intentos fallidos con un usuario, se bloquea un minuto.
 - Cada estudiante y cada junior ve solo sus informes. La empresa ve todos, guarda la configuración y puede borrar informes.
