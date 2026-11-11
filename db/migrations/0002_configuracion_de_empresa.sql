@@ -1,8 +1,7 @@
+-- Up Migration
 -- 0002: lo que hoy vive en data/empresa.json, normalizado en tablas.
 -- Las vistas siguen pudiendo recibir y devolver el mismo JSON: la conversión
 -- tabla <-> JSON se hace en empresa.repository.js, así el frontend no cambia.
-
-BEGIN;
 
 -- Datos sueltos de la empresa (antes: responsable, tareaEjemplo, notasEvaluacion, vozTelefonica).
 ALTER TABLE empresas
@@ -80,5 +79,3 @@ CREATE TABLE criterio_indicadores (
   orden       integer NOT NULL DEFAULT 0
 );
 CREATE INDEX criterio_indicadores_criterio_idx ON criterio_indicadores (criterio_id);
-
-COMMIT;
