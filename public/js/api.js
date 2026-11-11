@@ -137,6 +137,8 @@ T.api = (function () {
     auth: {
       yo: () => jsonReq("/api/yo"),
       ingresar: (usuario, clave) => jsonReq("/api/login", { method: "POST", body: JSON.stringify({ usuario, clave }) }),
+      config: () => jsonReq("/api/auth/config"),
+      google: credential => jsonReq("/api/auth/google", { method: "POST", body: JSON.stringify({ credential }) }),
       salir: () => jsonReq("/api/logout", { method: "POST" }),
       cambiarClave: datos => jsonReq("/api/contrasena", { method: "POST", body: JSON.stringify(datos) })
     },

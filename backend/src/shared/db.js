@@ -14,6 +14,12 @@ function obtenerPool() {
   // Una conexión que estaba quieta en el pool puede caerse (por ejemplo, si reinician la base).
   // Sin este manejador, ese error tira abajo todo el proceso de Node.
   pool.on("error", e => console.error("[db] se cayó una conexión inactiva:", e.message));
+  // Solo para las pruebas: cada corrida usa su propio esquema. En la app normal queda vacío (esquema public).
+  const esquema = env("DATABASE_SCHEMA");
+  if (esquema) {
+    if (!/^[a-z_][a-z0-9_]*$/.test(esquema)) throw new Error("DATABASE_SCHEMA tiene caracteres no permitidos.");
+    pool.on("connect", c => { c.query(`SET search_path TO "${esquema}", public`); });
+  }
   return pool;
 }
 

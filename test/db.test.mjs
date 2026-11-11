@@ -1,5 +1,5 @@
 // Migraciones contra un Postgres de verdad. Necesita TEST_DATABASE_URL (por ejemplo, el de Docker);
-// sin eso, se saltean. Cada corrida usa un esquema propio con nombre al azar y lo borra al final,
+// sin eso, o si la base no responde, se saltean. Cada corrida usa un esquema propio con nombre al azar y lo borra al final,
 // así no toca las tablas de desarrollo de esa base.
 import { test, after } from "node:test";
 import assert from "node:assert/strict";
@@ -7,8 +7,8 @@ import crypto from "node:crypto";
 import pg from "pg";
 import { migrar } from "../scripts/db.mjs";
 
-const URL = process.env.TEST_DATABASE_URL || "";
-const omitir = URL ? false : "falta TEST_DATABASE_URL (levantá Postgres con docker compose up -d)";
+import { URL_PRUEBA as URL, motivoParaSaltear } from "./db-prueba.mjs";
+const omitir = await motivoParaSaltear();
 const ESQUEMA = "prueba_" + crypto.randomBytes(4).toString("hex");
 let cliente;
 async function conectar() {

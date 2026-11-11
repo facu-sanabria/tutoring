@@ -17,12 +17,14 @@ async function ingresar(req, res) {
 }
 
 function yo(req, res, { yo }) {
-  return json(res, 200, { id: yo.id, usuario: yo.usuario, nombre: yo.nombre, rol: yo.rol, debeCambiar: yo.debeCambiar });
+  return json(res, 200, { id: yo.id, usuario: yo.usuario, nombre: yo.nombre, rol: yo.rol, debeCambiar: yo.debeCambiar, metodo: yo.metodo || "clave" });
 }
 
 function salir(req, res) {
   auth.salir(cookieDe(req, "sesion"));
-  res.setHeader("set-cookie", `sesion=; ${COOKIE_BASE}; Max-Age=0`);
+  // Borra las dos: la sesión vieja y el JWT de Google. El JWT en sí sigue valiendo hasta que vence
+  // (no se guarda en ningún lado); para cortarlo antes, se sube token_version del usuario.
+  res.setHeader("set-cookie", [`sesion=; ${COOKIE_BASE}; Max-Age=0`, `acceso=; ${COOKIE_BASE}; Max-Age=0`]);
   return json(res, 200, { ok: true });
 }
 
