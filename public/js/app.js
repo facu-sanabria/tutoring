@@ -1248,11 +1248,54 @@
   const errorForm = texto => h("p", { class: "form-err", role: "alert", text: texto || "", hidden: !texto });
   const campoClave = (id, autocomplete) => h("input", { id, type: "password", autocomplete, required: true, minlength: id === "claveActual" ? null : MIN_CLAVE });
 
+  // Script oficial de Google Identity Services: se carga solo en la pantalla de ingreso y una sola vez.
+  let cargandoGoogle = null;
+  function cargarGoogle() {
+    if (window.google && google.accounts && google.accounts.id) return Promise.resolve();
+    if (!cargandoGoogle) cargandoGoogle = new Promise((ok, mal) => {
+      const s = document.createElement("script");
+      s.src = "https://accounts.google.com/gsi/client";
+      s.async = true;
+      s.onload = ok;
+      s.onerror = () => { cargandoGoogle = null; mal(new Error("No se pudo cargar el botón de Google.")); };
+      document.head.append(s);
+    });
+    return cargandoGoogle;
+  }
+
+  // Botón "Acceder con Google". Si el servidor no tiene el ingreso con Google configurado, no aparece.
+  // Google le da al navegador un ID token; lo mandamos al servidor, que lo verifica y decide si entra.
+  async function botonGoogle(zona, err) {
+    try {
+      const c = await T.api.auth.config();
+      if (!c.google || !zona.isConnected) return;
+      await cargarGoogle();
+      if (!zona.isConnected) return;
+      google.accounts.id.initialize({
+        client_id: c.google.clientId,
+        ux_mode: "popup",
+        auto_select: false,
+        callback: async r => {
+          err.hidden = true;
+          try { await T.api.auth.google(r.credential); await entrar(); }
+          catch (e) { err.textContent = T.api.errorCopy(e); err.hidden = false; }
+        }
+      });
+      google.accounts.id.renderButton(zona.querySelector(".google-boton"), { theme: "outline", size: "large", text: "signin_with", shape: "rectangular", locale: "es", width: 320 });
+      zona.hidden = false;
+    } catch (e) {
+      console.warn("[ingreso] sin botón de Google:", e.message);
+    }
+  }
+
   VIEWS.login = view => {
     const usuario = h("input", { id: "loginUsuario", type: "text", autocomplete: "username", autocapitalize: "none", spellcheck: "false", required: true });
     const clave = campoClave("loginClave", "current-password");
     const err = errorForm(S.params.aviso);
     const btn = h("button", { id: "loginEntrar", class: "btn lg", type: "submit", text: "Ingresar" });
+    const zonaGoogle = h("div", { class: "google-zona", hidden: true },
+      h("p", { class: "google-sep muted", text: "o, si una empresa te invitó" }),
+      h("div", { class: "google-boton" }));
     view.append(h("form", { class: "auth-card", novalidate: true, onsubmit: async ev => {
       ev.preventDefault();
       if (!usuario.value.trim() || !clave.value) { err.textContent = "Completá tu usuario y tu contraseña."; err.hidden = false; return; }
@@ -1265,7 +1308,8 @@
       h("h1", { text: "Ingresá a tu cuenta" }),
       field("Usuario", null, usuario),
       field("Contraseña", "La primera vez, usá el código que te dieron.", clave),
-      err, btn));
+      err, btn, zonaGoogle));
+    botonGoogle(zonaGoogle, err);
     requestAnimationFrame(() => usuario.focus());
   };
 
@@ -1371,6 +1415,7 @@
   async function entrar() {
     S.usuario = await T.api.auth.yo();
     if (S.usuario.debeCambiar) return go("nuevaClave");
+    $("cuenta").hidden = S.usuario.metodo === "google";
     S.profile = S.usuario.rol;
     S.candidato = S.usuario.nombre;
     S.voiceName = store.get(k("voice"), "");

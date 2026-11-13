@@ -1,8 +1,7 @@
+-- Up Migration
 -- 0001: empresas, usuarios, identidades de Google e invitaciones.
 -- Base: PostgreSQL 15 o superior (gen_random_uuid() viene incluido desde la 13).
 -- Los emails se guardan SIEMPRE en minúsculas; la base lo exige con un CHECK.
-
-BEGIN;
 
 -- Cada empresa aliada. Todo lo demás cuelga de acá (un candidato pertenece a UNA sola empresa).
 CREATE TABLE empresas (
@@ -61,5 +60,3 @@ CREATE INDEX invitaciones_empresa_idx ON invitaciones (empresa_id);
 -- Un mismo email no puede tener dos invitaciones pendientes (ni de empresas distintas):
 -- así una persona queda ligada a una sola empresa.
 CREATE UNIQUE INDEX invitaciones_una_pendiente_por_email ON invitaciones (email) WHERE estado = 'pendiente';
-
-COMMIT;

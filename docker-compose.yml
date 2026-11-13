@@ -1,0 +1,26 @@
+# Postgres para desarrollar en la compu. Misma versión mayor que usaríamos en RDS (17), con pgvector.
+#   docker compose up -d      prende la base (queda andando en segundo plano)
+#   docker compose stop       la apaga (los datos quedan en el volumen)
+#   docker compose down -v    la apaga Y BORRA los datos
+# Usuario y clave de desarrollo: no son secretos, solo sirven para esta base local.
+services:
+  db:
+    image: pgvector/pgvector:pg17
+    environment:
+      POSTGRES_USER: tutoring
+      POSTGRES_PASSWORD: tutoring-dev
+      POSTGRES_DB: tutoring
+    ports:
+      # 55432 en la compu -> 5432 dentro del contenedor. No usamos 5432/5433 porque ahí suele haber
+      # un PostgreSQL instalado en Windows, y la conexión le llegaría a ese.
+      - "127.0.0.1:55432:5432"   # solo desde esta compu, no desde la red
+    volumes:
+      - tutoring-pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tutoring -d tutoring"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  tutoring-pg:

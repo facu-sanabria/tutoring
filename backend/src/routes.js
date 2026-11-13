@@ -1,5 +1,5 @@
 // Orden de chequeos de la API (el mismo que tenía handleApi en server.js):
-// origen → chequeo local → ingreso → sesión → contraseña pendiente → rutas de los módulos.
+// origen → chequeo local → ingreso (contraseña o Google) → sesión → contraseña pendiente → rutas de los módulos.
 const { fail } = require("./shared/http/respuesta");
 const { exigir, mismoOrigen, MSG_SIN_PERMISO } = require("./shared/http/permisos");
 const { crearRouter } = require("./shared/http/router");
@@ -20,7 +20,7 @@ async function handleApi(req, res, url) {
 
   if (await publicas(req, res, { url })) return;
 
-  const yo = usuarioDe(req);
+  const yo = await usuarioDe(req);
   if (!exigir(res, yo)) return;
   if (yo.debeCambiar && !["/api/yo", "/api/contrasena", "/api/logout"].includes(url.pathname)) return fail(res, 403, "Primero creá tu contraseña.");
 

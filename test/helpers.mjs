@@ -43,6 +43,11 @@ export async function startApp({ provider = "gemini", key = "clave-de-prueba", e
       ANTHROPIC_API_KEY: provider === "anthropic" ? key : "",
       GEMINI_LIVE_API_KEY_2: "",           // que no se cuelen las keys de respaldo del .env real
       GEMINI_LIVE_API_KEY_3: "",
+      GOOGLE_CLIENT_ID: "",                 // que no se cuele el Client ID del .env real
+      DATABASE_URL: "",                     // los tests del servidor no tocan la base real
+      DATABASE_SCHEMA: "",
+      JWT_SECRET: "",
+      GOOGLE_CERTS_PRUEBA: "",
       GEMINI_BASE_URL: fake.gemini,
       ANTHROPIC_BASE_URL: fake.anthropic,
       GEMINI_LIVE_BASE_URL: fake.live,

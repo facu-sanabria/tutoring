@@ -1,11 +1,10 @@
+-- Up Migration
 -- 0003: simulaciones, transcripción, informes y consumo de IA.
 -- Qué es una COPIA CONGELADA y qué es una REFERENCIA:
 --  * El escenario y los criterios que se usaron se copian al informe: si la empresa los edita
 --    después, los informes viejos no cambian.
 --  * El nombre de la empresa NO se copia: se llega por empresa_id. Así renombrar la empresa
 --    no hace desaparecer sus informes (hoy pasa con el archivo JSON).
-
-BEGIN;
 
 CREATE TABLE simulaciones (
   id                 uuid        PRIMARY KEY DEFAULT gen_random_uuid(),
@@ -114,5 +113,3 @@ SELECT empresa_id,
        sum(costo_usd) FILTER (WHERE NOT se_cobra)       AS costo_equivalente_usd
 FROM consumo_ia
 GROUP BY empresa_id, date_trunc('month', creado_en AT TIME ZONE 'America/Argentina/Buenos_Aires');
-
-COMMIT;
